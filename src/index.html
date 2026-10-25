@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>贵州麻将 · 贵阳捉鸡</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="titlebar">
+      <div class="brand">
+        <div class="brand-tile"><span>贵</span></div>
+        <div class="brand-text">
+          <strong>贵州麻将</strong>
+          <span>贵阳捉鸡 · 单机版</span>
+        </div>
+      </div>
+      <div class="tb-actions">
+        <button id="btn-sound" class="tb-btn" title="开关音效">音效 开</button>
+        <button id="btn-speed" class="tb-btn" title="电脑出牌速度">速度 中</button>
+        <button id="btn-rules" class="tb-btn" title="查看规则">规则</button>
+        <button id="btn-reset-scores" class="tb-btn" title="清空四家累计分数">清空分数</button>
+        <button id="btn-new" class="tb-btn" title="重新开一局">新的一局</button>
+        <div class="win-btns">
+          <button id="btn-min" class="win-btn" title="最小化">–</button>
+          <button id="btn-max" class="win-btn" title="最大化">□</button>
+          <button id="btn-close" class="win-btn close" title="关闭">✕</button>
+        </div>
+      </div>
+    </header>
+
+    <main id="stage-wrap">
+      <div id="stage">
+        <div id="felt">
+          <div class="seat seat-top" id="seat-top" data-seat="2"></div>
+          <div class="seat seat-left" id="seat-left" data-seat="3"></div>
+          <div class="seat seat-right" id="seat-right" data-seat="1"></div>
+          <div class="seat seat-bottom" id="seat-bottom" data-seat="0"></div>
+
+          <div class="river" id="river-top" data-seat="2"></div>
+          <div class="river" id="river-left" data-seat="3"></div>
+          <div class="river" id="river-right" data-seat="1"></div>
+          <div class="river" id="river-bottom" data-seat="0"></div>
+
+          <!-- 桌面中央：模拟牌墙 + 桌心 -->
+          <div id="table-center" aria-hidden="true">
+            <div class="wall-strip wall-top"></div>
+            <div class="wall-strip wall-bottom"></div>
+            <div class="wall-strip wall-left"></div>
+            <div class="wall-strip wall-right"></div>
+          </div>
+
+          <div id="center-panel">
+            <div class="cp-ring"></div>
+            <div class="cp-round" id="cp-round">第 1 局</div>
+            <div class="cp-wall">
+              <div class="cp-stack"><i></i><i></i><i></i></div>
+              <div class="cp-num" id="cp-wall">55</div>
+              <div class="cp-label">牌墙剩余</div>
+            </div>
+            <div class="cp-turn" id="cp-turn">等待开局</div>
+          </div>
+        </div>
+
+        <div id="calls"></div>
+        <div id="actions"></div>
+        <div id="toast"></div>
+        <div id="overlay" class="hidden"></div>
+      </div>
+    </main>
+    <div id="tip" class="hidden"></div>
+  </div>
+
+  <svg id="svg-defs" width="0" height="0" aria-hidden="true">
+    <defs>
+      <linearGradient id="gzStick" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#2b6f37" />
+        <stop offset="0.45" stop-color="#7dba6d" />
+        <stop offset="1" stop-color="#2b6f37" />
+      </linearGradient>
+      <radialGradient id="gzDot" cx="0.35" cy="0.3" r="0.85">
+        <stop offset="0" stop-color="#ffffff" />
+        <stop offset="0.75" stop-color="#f2f4f9" />
+        <stop offset="1" stop-color="#dfe5ef" />
+      </radialGradient>
+    </defs>
+  </svg>
+
+  <script src="js/rules.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/tiles.js"></script>
+  <script src="js/ui.js"></script>
+</body>
+</html>

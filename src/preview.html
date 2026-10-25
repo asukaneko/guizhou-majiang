@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>tile preview</title>
+  <style>
+    body { margin: 0; background: #0d3d2d; font-family: "Microsoft YaHei", sans-serif; padding: 18px; }
+    .row { display: flex; gap: 6px; margin-bottom: 10px; align-items: flex-end; }
+    .t { width: 56px; height: 75px; }
+    .t.mid { width: 36px; height: 48px; }
+    .t.small { width: 24px; height: 32px; }
+    .t img { width: 100%; height: 100%; display: block; }
+    .lbl { color: #9fd8c0; font-size: 11px; width: 40px; }
+  </style>
+</head>
+<body>
+  <div id="out"></div>
+  <script>
+    const SUITS = [['Man', '万'], ['Sou', '条'], ['Pin', '筒']];
+    const out = document.getElementById('out');
+    const sizes = ['t', 'mid', 'small'];
+    sizes.forEach((cls) => {
+      SUITS.forEach(([dir, name]) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const lbl = document.createElement('div');
+        lbl.className = 'lbl';
+        lbl.textContent = name + ' ' + cls;
+        row.appendChild(lbl);
+        for (let i = 1; i <= 9; i++) {
+          const d = document.createElement('div');
+          d.className = 't ' + cls;
+          d.innerHTML = `<img src="assets/tiles/${dir}${i}.svg">`;
+          row.appendChild(d);
+        }
+        out.appendChild(row);
+      });
+    });
+    const backRow = document.createElement('div');
+    backRow.className = 'row';
+    ['Back', 'Front'].forEach((n) => {
+      const d = document.createElement('div');
+      d.className = 't';
+      d.innerHTML = `<img src="assets/tiles/${n}.svg">`;
+      backRow.appendChild(d);
+    });
+    out.appendChild(backRow);
+  </script>
+</body>
+</html>
