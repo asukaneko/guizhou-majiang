@@ -23,12 +23,26 @@
     Net.on('msg', handle);
     Net.on('status', (st) => {
       if (view === 'connect') render();
+      if (st === 'open') {
+        // 连上先报名字：房间列表、牌桌座位都用它
+        Net.send({ t: 'hello', name: P.get().name });
+      }
       if (st === 'lost' && room) {
         onError('与服务器断开了连接');
-        leave();
+        leave(true);
       }
+      if (st === 'lost') render();
     });
     bind();
+    render();
+  }
+
+  /** 本地离开房间视图（退房请求已发或已断线） */
+  function leave(silent) {
+    if (!silent && Net.status() === 'open') Net.send({ t: 'leave' });
+    room = null;
+    view = 'connect';
+    started = false;
     render();
   }
 
@@ -41,13 +55,26 @@
         view = 'room';
         started = false;
         show();
+        // 中途加入一局已经开打的房间：直接进牌桌
+        if (room.running) enterTable();
         break;
-      case 'room':
+      case 'room': {
         if (!room || msg.room.id === room.id) {
+          const prev = room;
           room = msg.room;
           if (!started) render();
+          const newRound = room.running && (!prev || !prev.running
+            || (prev.roundNo !== room.roundNo));
+          if (room.running && !started) {
+            // 房主开局 / 开下一局：没在牌桌的玩家自动进场
+            enterTable();
+          } else if (room.running && started && newRound) {
+            // 新一局开始了：收起上一局的结算面板
+            if (root.GZUI && root.GZUI.hideResult) root.GZUI.hideResult();
+          }
         }
         break;
+      }
       case 'error':
         if (onError) onError(msg.err);
         break;
@@ -61,11 +88,27 @@
     }
   }
 
+  /** 进入联机牌桌（房主开局后所有人走这里） */
+  function enterTable() {
+    started = true;
+    hide();
+    // 先进场再要一份当前快照：晚进场 / 中途加入也能立刻拿到牌桌状态
+    if (onEnterGame) onEnterGame();
+    Net.send({ t: 'sync' });
+  }
+
   /* ---------------- 视图 ---------------- */
 
   function show() {
     if (!node) return;
     node.classList.remove('hidden');
+    // 网页模式（http://IP:8788 打开）默认直连本页来源，进去就能用
+    if (Net.status() === 'closed'
+      && (location.protocol === 'http:' || location.protocol === 'https:')) {
+      const addr = defaultAddr();
+      localStorage.setItem('gz-server', addr);
+      Net.connect(addr);
+    }
     render();
   }
 
@@ -81,27 +124,41 @@
     if (root.GZUI && root.GZUI.fit) root.GZUI.fit();
   }
 
+  /* 浏览器打开 http://IP:8788 时，默认就连本页来源的服务器；Electron(file://) 才退回手填 */
+  function defaultAddr() {
+    try {
+      if (location.protocol === 'http:' || location.protocol === 'https:') {
+        const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+        return proto + location.host;
+      }
+    } catch (e) { /* ignore */ }
+    return localStorage.getItem('gz-server') || 'ws://127.0.0.1:8788';
+  }
+
   function connectHtml() {
     const st = Net.status();
     const badge = st === 'open'
       ? '<span class="ol-badge on">已连接</span>'
       : st === 'connecting' ? '<span class="ol-badge">连接中…</span>'
         : '<span class="ol-badge off">未连接</span>';
-    const saved = localStorage.getItem('gz-server') || 'ws://127.0.0.1:8788';
+    const saved = defaultAddr();
     const name = P.get().name;
+    const webMode = location.protocol === 'http:' || location.protocol === 'https:';
     return `<div class="ol-card">
       <div class="ol-head">
         <h2>联机对战</h2>
         ${badge}
       </div>
-      <p class="ol-sub">房主建房拿到 4 位房号，别人用房号进房；不满 4 人可以补机器人。经典和幺筒麻将都能联机。</p>
+      <p class="ol-sub">房主建房拿到 4 位房号，别人用房号进房；不满 4 人可以补机器人。经典和幺筒麻将都能联机。${
+        webMode ? '当前就是网页模式，服务器地址已自动填好。' : '也可以直接把 <b>http://服务器IP:8788</b> 发给朋友，浏览器打开即玩。'
+      }</p>
       <label class="ol-field">
         <span>服务器地址</span>
         <input id="ol-addr" value="${saved}" spellcheck="false" placeholder="ws://192.168.1.5:8788" />
       </label>
       <div class="ol-row">
         <button class="btn-ghost" data-act="connect">连接</button>
-        <span class="ol-tip">连上后创建或加入房间（浏览器打开 http://IP:8788 也行）</span>
+        <span class="ol-tip">连上后创建或加入房间</span>
       </div>
       <div class="ol-grid">
         <div class="ol-block">
@@ -143,8 +200,8 @@
       </div>`;
     }).join('');
 
-    const startedBtn = `<button class="btn-primary" data-act="start" ${room.host && room.full ? '' : 'disabled'}>
-      ${room.full ? '开始对局' : '还差人数'}</button>`;
+    const startedBtn = `<button class="btn-primary" data-act="start" ${room.full ? '' : 'disabled'}>
+      ${room.full ? (room.host ? '开始对局' : '进入牌桌') : '还差人数'}</button>`;
 
     return `<div class="ol-card wide">
       <div class="ol-head">
@@ -168,6 +225,7 @@
         `}
       </div>
       <div class="ol-foot">
+        <button class="btn-ghost" data-act="back">返回大厅</button>
         <button class="btn-ghost" data-act="leave">退出房间</button>
         ${room.host ? `<button class="btn-ghost" data-act="addbot" ${room.full ? 'disabled' : ''}>添加机器人</button>` : ''}
         ${startedBtn}
@@ -205,20 +263,11 @@
       } else if (act === 'removebot') {
         Net.send({ t: 'removebot', uid: btn.dataset.uid });
       } else if (act === 'start') {
-        Net.send({ t: 'start' });
-        started = true;
-        hide();
-        onEnterGame();
-      } else if (act === 'config') {
-        Net.send({
-          t: 'config',
-          config: {
-            mode: ($('#ol-mode2') || {}).value,
-            totalRounds: parseInt(($('#ol-rounds2') || {}).value || '4', 10)
-          }
-        });
+        if (room && room.host) Net.send({ t: 'start' });
+        enterTable();   // 房主请求开局后进场；其他人点「进入牌桌」直接进场
       } else if (act === 'leave') {
-        Net.send({ t: 'leave' });
+        leave();
+        if (root.GZUI && root.GZUI.showLobby) root.GZUI.showLobby();
       } else if (act === 'back') {
         hide();
         if (root.GZUI && root.GZUI.showLobby) root.GZUI.showLobby();

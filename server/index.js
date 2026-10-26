@@ -187,6 +187,15 @@ function handleMessage(me, msg) {
       return;
     }
 
+    /* 玩家（重新）进入牌桌：立刻补发一份当前快照，不等下一次状态变化 */
+    case 'sync': {
+      if (!me.room || !me.room.game) return;
+      const seat = me.room.seatOf(me.uid);
+      if (seat < 0) return;
+      me.room.sendSnapshotTo(seat);
+      return;
+    }
+
     case 'ping': send(me.ws, { t: 'pong' }); return;
 
     default: send(me.ws, { t: 'error', err: `未知消息 ${msg.t}` });

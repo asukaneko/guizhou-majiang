@@ -91,8 +91,35 @@ async function capture() {
   }
 
   // 现在启动先到大厅：除大厅截图外，其余截图先进入对应玩法
-  if (shotMode === 'online-e2e') {
-    // 真服务器 + 真窗口 + 真 UI 点击：联机面板 → 建房 → 加机器人 → 开始对局
+  if (shotMode === 'online-e2e-host') {
+    // 房主视角自动化：连接 → 建房 → 满员 → 打印房号 → 点开始
+    const port = (process.argv.find((a) => a.startsWith('--server-port=')) || '').split('=')[1] || '8788';
+    const run = async () => {
+      const exec = (code) => w.webContents.executeJavaScript(code);
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const click = (sel) => exec(`(function(){ const b = document.querySelector('${sel}'); if (!b) return 'no-btn'; b.click(); return 'ok'; })()`);
+      const fill = (sel, v) => exec(`(function(){ const n = document.querySelector('${sel}'); if (!n) return 'no-input'; n.value = '${v}'; return 'ok'; })()`);
+
+      await exec(`window.__ui.showOnline(); 'ok'`);
+      await wait(400);
+      await fill('#ol-addr', `ws://127.0.0.1:${port}`);
+      await click('[data-act="connect"]');
+      await wait(800);
+      await exec(`(function(){ const s = document.querySelector('#ol-mode'); if (s) { s.value = 'classic'; s.dispatchEvent(new Event('change', { bubbles: true })); } return 'ok'; })()`);
+      await click('.ol-block [data-act="create"]');
+      await wait(700);
+      // 房号从 joined 消息的 DOM 里读：房间标题
+      const roomCode = await exec(`(function(){ const h = document.querySelector('.ol-head h2'); const m = h && h.textContent.match(/\\d{4,6}/); return m ? m[0] : 'none'; })()`);
+      console.log('HOST-ROOM', roomCode);
+      for (let i = 0; i < 2; i++) { await click('[data-act="addbot"]'); await wait(280); }
+      console.log('HOST-START', await click('[data-act="start"]'));
+      await wait(1200);
+      // 保持窗口开着，让 B 的加入与开局广播都有时间送达
+      await wait(3000);
+    };
+    try { await run(); } catch (err) { console.log('HOST-ERR', err && err.message); }
+    await sleep(300);
+  } else if (shotMode === 'online-e2e') {    // 真服务器 + 真窗口 + 真 UI 点击：联机面板 → 建房 → 加机器人 → 开始对局
     const port = (process.argv.find((a) => a.startsWith('--server-port=')) || '').split('=')[1] || '8788';
     const run = async () => {
       const exec = (code) => w.webContents.executeJavaScript(code);
@@ -116,6 +143,38 @@ async function capture() {
         console.log('BOT', await click('[data-act="addbot"]'));
         await wait(300);
       }
+      // 3.5 房间视图断言：座位显示昵称 + 返回大厅可用
+      const roomCheck = await exec(`
+        (function(){
+          const names = [...document.querySelectorAll('.ol-seat-name')].map((n) => n.textContent);
+          const hasBack = !!document.querySelector('[data-act="back"]');
+          const inOnline = document.body.classList.contains('in-online');
+          return JSON.stringify({ names, hasBack, inOnline });
+        })()
+      `);
+      console.log('ROOM-CHECK', roomCheck);
+      console.log('BACK', await click('[data-act="back"]'));
+      await wait(500);
+      const lobbyCheck = await exec(`
+        (function(){
+          return JSON.stringify({
+            lobbyVisible: !document.querySelector('#lobby').classList.contains('hidden'),
+            onlineHidden: document.querySelector('#online').classList.contains('hidden'),
+            inLobby: document.body.classList.contains('in-lobby')
+          });
+        })()
+      `);
+      console.log('LOBBY-CHECK', lobbyCheck);
+      // 回到联机面板继续（房间还在服务器上）
+      await exec(`window.__ui.showOnline(); 'ok'`);
+      await wait(500);
+      const backInRoom = await exec(`
+        (function(){
+          const names = [...document.querySelectorAll('.ol-seat-name')].map((n) => n.textContent);
+          return JSON.stringify({ view: window.GZOnline.room ? 'room' : 'connect', names });
+        })()
+      `);
+      console.log('REJOIN-CHECK', backInRoom);
       // 4. 开始对局（走真实按钮 → onEnterGame → RemoteGame）
       console.log('START', await click('[data-act="start"]'));
       await wait(900);
@@ -233,7 +292,7 @@ async function capture() {
     w.webContents.reload();
     await loaded;
     await sleep(1200);
-  } else if (shotMode !== 'online' && shotMode !== 'online-room' && shotMode !== 'online-e2e') {
+  } else if (shotMode !== 'online' && shotMode !== 'online-room' && shotMode !== 'online-e2e' && shotMode !== 'online-e2e-host') {
     const modeForShot = shotMode.indexOf('yitong') === 0 ? 'yitong' : 'classic';
     await w.webContents.executeJavaScript(`
       (function(){

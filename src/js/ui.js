@@ -638,6 +638,12 @@
     el.overlay._sig = null;
   }
 
+  /** 新一局开始（联机：房主开了下一局）→ 收起上一局结算 */
+  function hideResult() {
+    el.overlay.classList.add('hidden');
+    el.overlay.innerHTML = '';
+  }
+
   /* ---------------- 规则 ---------------- */
 
   const RULES_COMMON = `
@@ -775,10 +781,12 @@
       else if (act === 'next') {
         el.overlay.classList.add('hidden');
         if (game.isRemote) {
-          // 联机：房主开下一局，其他人回到房间等待
-          window.GZNet.send({ t: 'next' });
-          if (window.GZOnline.room && !window.GZOnline.room.host) {
-            toast('已请求下一局，等房主开局', 2200);
+          const onlineRoom = window.GZOnline.room;
+          if (onlineRoom && onlineRoom.host) {
+            // 房主开下一局；其他玩家由服务端 room 广播自动进场
+            window.GZNet.send({ t: 'next' });
+          } else {
+            toast('等房主开下一局', 2200);
             showOnlineRoom();
           }
         } else game.nextRound();
@@ -1114,14 +1122,20 @@
 
     GZOnline.init({ onError: toast, onEnterGame: enterOnlineGame });
     GZLobby.init({ onEnter: enterMode, onRules: showRules, onRender: fit, onOnline: showOnline });
-    window.__ui = { enterMode, showLobby, showOnline, showRules, fit };
+    window.__ui = { enterMode, showLobby, showOnline, showRules, showResult, hideResult, fit };
+    window.GZUI = window.__ui;   // 供 online.js / lobby.js 回调返回大厅、联机面板
 
     // 联机消息只在启动时挂一次；onNetMsg 自己判断当前牌桌
     window.GZNet.on('msg', onNetMsg);
     window.GZNet.on('status', (st) => {
       if (st === 'lost') {
         toast('与服务器断开连接', 3000);
-        if (game && game.isRemote) showLobby();
+        if (game && game.isRemote) {
+          game = null;          // 这桌已经没了
+          window.__game = null;
+        }
+        GZOnline.hide();
+        showLobby();
       }
     });
 

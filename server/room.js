@@ -122,12 +122,19 @@ class Room {
 
   broadcastGame() {
     if (!this.game) return;
+    this.sendSnapshotTo(null);
+  }
+
+  /** 给某个座位（或全部真人座位）补发一份带全部未播 fx 的快照 */
+  sendSnapshotTo(seat) {
+    if (!this.game) return;
     const fx = this.fx.splice(0, this.fx.length);
-    for (let seat = 0; seat < 4; seat++) {
-      const s = this.seats[seat];
-      if (!s || s.bot || !s.ws || s.ws.readyState !== 1) continue;
-      const snap = snapshot(this.game, seat);
-      s.ws.send(JSON.stringify({ t: 'snapshot', snap, fx: this.rotateFx(seat) }));
+    for (let s = 0; s < 4; s++) {
+      if (seat !== null && s !== seat) continue;
+      const pl = this.seats[s];
+      if (!pl || pl.bot || !pl.ws || pl.ws.readyState !== 1) continue;
+      const snap = snapshot(this.game, s);
+      pl.ws.send(JSON.stringify({ t: 'snapshot', snap, fx: this.rotateFx(s) }));
     }
   }
 
@@ -168,6 +175,7 @@ class Room {
     });
     game.startRound();
     this.broadcastRoom();
+    this.sendSnapshotTo(null);   // 立刻给所有真人补发发牌快照（含刚进场的玩家）
     return { ok: true };
   }
 
