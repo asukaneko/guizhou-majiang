@@ -11,9 +11,15 @@
     "shot:preview": "node scripts/launch.js --shot --shot-url=src/preview.html --shot-path=output/tiles.png",
     "sim": "node scripts/sim.cjs",
     "sim:yitong": "node scripts/sim.cjs --mode=yitong",
-    "test": "node --test test/rules.test.cjs"
+    "server": "node server/index.js",
+    "e2e": "node scripts/e2e.cjs",
+    "e2e:ui": "node scripts/e2e-render.cjs",
+    "test": "node --test test/rules.test.cjs test/online.test.cjs"
   },
   "devDependencies": {
     "electron": "45.0.0"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
   }
 }

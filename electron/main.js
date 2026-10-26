@@ -91,7 +91,114 @@ async function capture() {
   }
 
   // 现在启动先到大厅：除大厅截图外，其余截图先进入对应玩法
-  if (shotMode === 'lobby') {
+  if (shotMode === 'online-e2e') {
+    // 真服务器 + 真窗口 + 真 UI 点击：联机面板 → 建房 → 加机器人 → 开始对局
+    const port = (process.argv.find((a) => a.startsWith('--server-port=')) || '').split('=')[1] || '8788';
+    const run = async () => {
+      const exec = (code) => w.webContents.executeJavaScript(code);
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const click = (sel) => exec(`(function(){ const b = document.querySelector('${sel}'); if (!b) return 'no-btn'; b.click(); return 'ok'; })()`);
+      const fill = (sel, v) => exec(`(function(){ const n = document.querySelector('${sel}'); if (!n) return 'no-input'; n.value = '${v}'; n.dispatchEvent(new Event('input', { bubbles: true })); return 'ok'; })()`);
+
+      // 1. 进联机面板，连接服务器
+      await exec(`window.__ui.showOnline(); 'ok'`);
+      await wait(400);
+      console.log('FILL', await fill('#ol-addr', `ws://127.0.0.1:${port}`));
+      console.log('CONN', await click('[data-act="connect"]'));
+      await wait(800);
+      // 2. 建房（经典 1 局）
+      const modeSet = await exec(`(function(){ const s = document.querySelector('#ol-mode'); if (!s) return 'no-select'; s.value = 'classic'; s.dispatchEvent(new Event('change', { bubbles: true })); return 'ok'; })()`);
+      console.log('MODE', modeSet);
+      console.log('CREATE', await click('.ol-block [data-act="create"]'));
+      await wait(700);
+      // 3. 加满机器人
+      for (let i = 0; i < 3; i++) {
+        console.log('BOT', await click('[data-act="addbot"]'));
+        await wait(300);
+      }
+      // 4. 开始对局（走真实按钮 → onEnterGame → RemoteGame）
+      console.log('START', await click('[data-act="start"]'));
+      await wait(900);
+      await exec(`
+        (function(){
+          const g = () => window.__game;
+          window.__autoTimer = setInterval(function(){
+            const gm = g();
+            if (!gm || !gm.isRemote) return;
+            const a = gm.awaiting;
+            if (!a) return;
+            if (a.kind === 'claim') { gm.humanRespond(a.options.includes('hu') ? 'hu' : 'pass'); return; }
+            if (a.self && a.self.hu) { gm.humanHu(); return; }
+            const me = gm.players[0];
+            const tile = me.hand && me.hand.includes(me.justDrawn) ? me.justDrawn : (me.hand || [])[0];
+            if (tile != null) gm.humanDiscard(tile);
+          }, 240);
+        })(); 'auto-on'
+      `);
+      // 等结算面板出现
+      const t0 = Date.now();
+      let done = false;
+      while (Date.now() - t0 < 150000) {
+        await wait(500);
+        const st = await exec(`
+          (function(){
+            const gm = window.__game;
+            return JSON.stringify({
+              remote: !!(gm && gm.isRemote),
+              phase: gm ? gm.phase : 'none',
+              round: gm ? gm.roundNo : 0,
+              panel: !!document.querySelector('#overlay .panel'),
+              seats: gm && gm.players ? gm.players.map(function(p){ return p.name; }) : [],
+              score: gm ? gm.scores : [],
+              net: window.GZNet.status(),
+              snapSeen: gm ? !!gm.state : false,
+              waiting: gm && gm.awaiting ? gm.awaiting.kind : null
+            });
+          })()
+        `);
+        const s = JSON.parse(st);
+        if (process.env.DIAG || process.argv.includes('--diag')) {
+          console.log('RENDER-TICK', st);
+        }
+        if (s.phase === 'ended' && s.panel) {
+          console.log('RENDER-OK', st);
+          done = true;
+          break;
+        }
+      }
+      if (!done) console.log('RENDER-TIMEOUT');
+      await exec(`clearInterval(window.__autoTimer); 'off'`);
+    };
+    try { await run(); } catch (err) { console.log('RENDER-ERR', err && err.message); }
+    await sleep(500);
+  } else if (shotMode === 'online') {
+    await w.webContents.executeJavaScript(`window.__ui.showOnline(); true;`);
+    await sleep(700);
+  } else if (shotMode === 'online-room') {
+    // 演示房间（本地桩数据，不起服务器）
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const node = document.querySelector('#online');
+        node.classList.remove('hidden');
+        const seats = ['你', '阿乙', '阿贵', '小幺'].map((name, i) => ({ name, bot: i >= 2, host: i === 0 }));
+        node.querySelector('.ol-wrap').innerHTML = '<div class="ol-card wide">' +
+          '<div class="ol-head"><h2>房间 5213</h2><span class="ol-badge on">满员</span></div>' +
+          '<p class="ol-sub">把房号 <b class="ol-code">5213</b> 告诉朋友，让 TA「加入房间」；不满 4 人房主可以补机器人。</p>' +
+          '<div class="ol-seats">' + seats.map((s, i) =>
+            '<div class="ol-seat"><div class="ol-seat-no">' + ['你','下家','对家','上家'][i] + '</div>' +
+            '<div class="ol-seat-name">' + s.name + '</div>' +
+            '<div class="ol-seat-tags"><span class="ol-seat-tag' + (s.bot ? ' bot' : '') + '">' + (s.bot ? '机器人' : '玩家') + '</span>' +
+            (s.host ? '<span class="ol-seat-tag host">房主</span>' : '') + '</div></div>'
+          ).join('') + '</div>' +
+          '<div class="ol-config"><label class="ol-field inline"><span>玩法</span><select><option>幺筒麻将</option></select></label>' +
+          '<label class="ol-field inline"><span>局数</span><select><option>4 局</option></select></label>' +
+          '<button class="btn-ghost">添加机器人</button></div>' +
+          '<div class="ol-foot"><button class="btn-ghost">退出房间</button><button class="btn-primary">开始对局</button></div></div>';
+        window.__ui.fit();
+      })(); true;
+    `);
+    await sleep(700);
+  } else if (shotMode === 'lobby') {
     const demo = `(() => {
       const now = Date.now();
       const h = (mins, mode, delta, win, selfDraw, pattern, points) => ({
@@ -126,7 +233,7 @@ async function capture() {
     w.webContents.reload();
     await loaded;
     await sleep(1200);
-  } else {
+  } else if (shotMode !== 'online' && shotMode !== 'online-room' && shotMode !== 'online-e2e') {
     const modeForShot = shotMode.indexOf('yitong') === 0 ? 'yitong' : 'classic';
     await w.webContents.executeJavaScript(`
       (function(){
@@ -462,7 +569,7 @@ async function capture() {
     `);
     if (process.argv.includes('--diag')) console.log('INJECT', r);
     await sleep(1400);
-  } else {
+  } else if (shotMode !== 'lobby' && shotMode !== 'online' && shotMode !== 'online-room') {
     await w.webContents.executeJavaScript(`
       window.__game.speed = 2.6;
       (function auto(){

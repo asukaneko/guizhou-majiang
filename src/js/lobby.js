@@ -171,6 +171,33 @@
     </article>`;
   }
 
+  function onlineCardHtml() {
+    return `<article class="mode-card online">
+      <div class="mc-top">
+        <div class="mc-text">
+          <span class="mc-tag">联机</span>
+          <h3>联机对战</h3>
+          <p>房主建房拿 4 位房号，朋友用房号进房；不满 4 人补机器人，开局前配玩法与局数。</p>
+        </div>
+        <div class="mc-art">
+          <div class="tile art-tile a">${T.face(4)}</div>
+          <div class="tile art-tile b">${T.face(22)}</div>
+          <span class="art-tag">4 人同桌</span>
+        </div>
+      </div>
+      <ul class="mc-feats">
+        <li>本机 / 局域网都行，一个房号一间房</li>
+        <li>机器人随时补位，掉线自动代打</li>
+        <li>经典、幺筒麻将都能联机开桌</li>
+        <li>服务端跑规则，各家只看自己的牌</li>
+      </ul>
+      <div class="mc-foot">
+        <div class="mc-stat"><span>服务端</span><b>npm run server</b></div>
+        <button class="mc-play" data-act="online">去联机</button>
+      </div>
+    </article>`;
+  }
+
   /* ---------------- 最近对局 ---------------- */
 
   function historyHtml() {
@@ -216,7 +243,10 @@
             <b>${P.get().history.length} 条对局记录</b>
           </div>
         </div>
-        <div class="mode-cards">${R.MODE_ORDER.map(cardHtml).join('')}</div>
+        <div class="mode-cards">
+          ${R.MODE_ORDER.map(cardHtml).join('')}
+          ${onlineCardHtml()}
+        </div>
         <div class="lb-hist">
           <div class="hist-head"><h3>最近对局</h3><span>最多显示 8 条</span></div>
           ${historyHtml()}
@@ -243,9 +273,7 @@
     renaming = false;
     node.classList.add('hidden');
     document.body.classList.remove('in-lobby');
-  }
-
-  function commitRename() {
+  }  function commitRename() {
     const input = node.querySelector('.pf-name-input');
     if (!input) return;
     P.rename(input.value);
@@ -276,6 +304,8 @@
       } else if (name === 'rename') {
         renaming = true;
         render();
+      } else if (name === 'online') {
+        if (hooks.onOnline) hooks.onOnline();
       } else if (name === 'reset') {
         const ok = window.confirm('清空本机的全部战绩、各玩法分数和对局记录吗？牌桌上的累计分也会一起归零。');
         if (!ok) return;

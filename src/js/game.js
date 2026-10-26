@@ -357,20 +357,7 @@
      */
     bestTingDiscard(p) {
       const pl = this.players[p];
-      if (pl.hand.length !== 14 - pl.melds.length * 3) return null;
-      const seen = this.seenCounts(p);
-      const tried = new Set();
-      let best = null;
-      for (const tile of pl.hand) {
-        if (tried.has(tile)) continue;
-        tried.add(tile);
-        const waits = R.tenpaiTiles(removeTiles(pl.hand, tile, 1), pl.melds);
-        if (!waits.length) continue;
-        const left = waits.reduce((sum, w) => sum + Math.max(0, 4 - seen[w]), 0);
-        const score = left * 2 + (tile === pl.justDrawn ? 1 : 0);
-        if (!best || score > best.score) best = { score, tile };
-      }
-      return best ? best.tile : null;
+      return R.bestTingOf(pl.hand, pl.melds, this.seenCounts(p), pl.justDrawn, this.mode);
     }
 
     /** 自动摸打的选择：能自摸就胡，听牌就打一张保持听牌的，没听牌返回 null */
@@ -390,13 +377,7 @@
 
     /** 某人能看到的牌张数：自己手牌 + 四家副露 + 四家牌河 */
     seenCounts(p) {
-      const c = new Array(27).fill(0);
-      for (const t of this.players[p].hand) c[t]++;
-      for (const q of this.players) {
-        for (const m of q.melds) for (const t of m.tiles) c[t]++;
-        for (const t of q.discards) c[t]++;
-      }
-      return c;
+      return R.seenCountsOf(this.players[p].hand, this.players);
     }
 
     setAuto(on) {

@@ -337,6 +337,39 @@
     return { tiles, points: best };
   }
 
+  /** 某人视角下的可见牌张数：自己手牌 + 四家副露 + 四家牌河 */
+  function seenCountsOf(hand, players) {
+    const c = new Array(27).fill(0);
+    for (const t of hand) c[t]++;
+    for (const pl of players) {
+      for (const m of pl.melds || []) for (const t of m.tiles) c[t]++;
+      for (const t of pl.discards || []) c[t]++;
+    }
+    return c;
+  }
+
+  /**
+   * 挑一张「打出去仍听牌」的牌：听口可见剩张多者优先，平手偏向刚摸到的那张。
+   * 手牌不是 14 - 3×副露 张、或怎么打都不听 → null
+   */
+  function bestTingOf(hand, melds, seen, justDrawn, mode) {
+    if (hand.length !== 14 - melds.length * 3) return null;
+    const tried = new Set();
+    let best = null;
+    for (const tile of hand) {
+      if (tried.has(tile)) continue;
+      tried.add(tile);
+      const rest = hand.slice();
+      rest.splice(rest.indexOf(tile), 1);
+      const waits = tenpaiTiles(rest, melds, mode);
+      if (!waits.length) continue;
+      const left = waits.reduce((sum, w) => sum + Math.max(0, 4 - seen[w]), 0);
+      const score = left * 2 + (tile === justDrawn ? 1 : 0);
+      if (!best || score > best.score) best = { score, tile };
+    }
+    return best ? best.tile : null;
+  }
+
   /* ---------------- 吃炮通行证 ---------------- */
   // 有豆（杠过）→ 平胡也能吃炮；没豆 → 只有 5 分及以上的牌型才能吃炮。
   function canChiPao(info) {
@@ -413,6 +446,7 @@
     createWall, shuffle, counts, sortHand,
     canFormSets, isWinShape, isSevenPairs, allTripletsShape,
     winInfo, isWin, tenpaiTiles, tingValue, canChiPao,
+    seenCountsOf, bestTingOf,
     chickenSet, chickenRate, chickenPoints, CHICKEN_BASE,
     PATTERN_POINTS, PATTERN_NAMES, BONUS, CHONG_POINTS,
     MODES, MODE_ORDER, resolveMode, setMode, currentMode, isWildTile

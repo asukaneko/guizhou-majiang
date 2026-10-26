@@ -1,6 +1,6 @@
-# 贵州麻将（Electron 桌面版）：经典 · 贵阳捉鸡 / 幺筒麻将
+# 贵州麻将（Electron 桌面版）：经典 · 贵阳捉鸡 / 幺筒麻将 · 联机
 
-一个能真正坐下来打的贵州麻将单机版：108 张牌、三家电脑对手、碰 / 杠 / 胡、报听、抢杠胡、热炮、一炮多响。
+一个能真正坐下来打的贵州麻将：108 张牌、碰 / 杠 / 胡、报听、抢杠胡、热炮、一炮多响。单机、联机都行。
 
 进入游戏先是**游戏大厅**：看自己的资料与战绩、选玩法开桌。两种玩法各算各的账：
 
@@ -8,6 +8,7 @@
 | --- | --- |
 | **经典 · 贵阳捉鸡** | 四类鸡（幺鸡 / 乌骨鸡 / 翻牌鸡 / 金鸡）、冲锋鸡、责任鸡、包鸡，报听锁牌，抢杠热炮 |
 | **幺筒麻将** | 一筒当**财神**，能替任意一张牌；**冲幺筒**谁先打出去谁收分；没有鸡，硬胡额外加分 |
+| **联机对战** | 房主建房拿 4 位房号，朋友用房号进房；不满 4 人补机器人；服务端跑规则，出牌 / 碰杠胡 / 报听都在自己手里 |
 
 牌面用的是公共领域的整套麻将矢量图（见下方「素材与许可」），界面为原生 HTML/CSS/JS，没有用游戏引擎。
 
@@ -17,8 +18,9 @@
 
 ```bash
 cd guizhou-mahjong
-npm install        # 只装 electron 一个依赖
-npm start          # 或者双击 start.bat
+npm install        # electron + ws 两个依赖
+npm start          # 单机：或者双击 start.bat
+npm run server     # 联机：启动服务器（默认 ws://0.0.0.0:8788）
 ```
 
 - `start.bat` 是 GBK + CRLF 编码（中文 Windows 的 cmd 才能正确解析），会先清掉 `ELECTRON_RUN_AS_NODE` 再启动。
@@ -70,6 +72,23 @@ npm start          # 或者双击 start.bat
 
 ![幺筒规则页](output/yitong-rules.png)
 
+## 联机对战
+
+一台机器当服务器，大家连同一个局域网就能开桌：
+
+![联机面板](output/online.png)
+
+- **启动服务器**：`npm run server`（或 `node server/index.js --port=8788`）。启动后会把本机和局域网地址都打出来；同一个端口也是 HTTP 静态页，浏览器打开 `http://IP:8788` 就能玩，不用装任何东西。
+- **建房**：大厅 → 联机对战 → 连接服务器 → 「创建房间」，选好玩法和局数，拿 4 位房号。
+- **加入**：朋友在联机面板输入房号「加入房间」。看到座位列表、谁是谁、谁是房主。
+- **机器人**：房主点「添加机器人」补空位（可移除）；对局中真人掉线，该座位自动转电脑代打，不坑局。
+- **开局**：满员后房主点「开始对局」；每局打完结算面板点「再来一局」由房主开下一局，打到约定局数为止。
+- **公平性**：服务端是权威端——`rules.js`/`game.js` 在 Node 里跑同一套规则；发牌、摸牌都在服务器，快照按座位轮转（你永远坐 0 号位），**别人的手牌和暗杠牌面不下发**；出牌 / 碰杠胡 / 报听 / 抢杠都是你自己在客户端点。
+- **超时兜底**：出牌 60 秒、吃碰胡 20 秒没响应，服务器自动代打/放弃，不卡整桌。
+- 联机对局也记入大厅的「最近对局」与生涯战绩（本机视角的得分），牌桌分数以服务器为准。
+
+![联机房间](output/online-room.png)
+
 ## 规则实现范围（经典 · 贵阳捉鸡）
 
 | 项目 | 实现 |
@@ -114,33 +133,47 @@ guizhou-mahjong/
 │   └── preload.js      # contextBridge 暴露最小窗口 API
 ├── scripts/
 │   ├── launch.js       # 启动器（清 ELECTRON_RUN_AS_NODE）
-│   └── sim.cjs         # 随机对局压测（零和 / 异常检查，支持 --mode）
+│   ├── sim.cjs         # 随机对局压测（零和 / 异常检查，支持 --mode）
+│   ├── e2e.cjs         # 联机协议端到端：真服务器 + WS 客户端打完整局
+│   └── e2e-render.cjs  # 联机 UI 端到端：真服务器 + Electron 窗口点完一局
+├── server/
+│   ├── index.js        # HTTP 静态页 + WebSocket（同端口）、房间表、消息路由
+│   ├── room.js         # 房间：座位 / 机器人 / 规则配置 / 局数 / 广播 / 掉线代打
+│   ├── online-game.js  # OnlineGame：继承 game.js，按座位等待真人输入（多人碰杠胡 / 抢杠 / 超时兜底）
+│   └── serialize.js    # 按座位轮转快照：你永远 0 号位，他人手牌与暗杠不下发
 ├── src/
 │   ├── index.html
 │   ├── preview.html    # 牌面预览（开发用）
 │   ├── assets/tiles/   # CC0 牌面 SVG（Man/Sou/Pin 1-9 + Back）
-│   ├── css/style.css   # 大厅、牌桌、麻将牌、桌心牌墙、结算面板
+│   ├── css/style.css   # 大厅、联机、牌桌、麻将牌、桌心牌墙、结算面板
 │   └── js/
 │       ├── rules.js    # 纯规则：玩法模式（MODES）、财神胡牌拆解、听牌、鸡与加分常量
 │       ├── ai.js       # 电脑对手：牌效启发式 + 碰杠取舍 + 财神估值
 │       ├── game.js     # 对局状态机：发牌、摸打、报听、抢杠、热炮、一炮多响、冲幺筒、结算
 │       ├── tiles.js    # 牌 → SVG 文件映射
 │       ├── profile.js  # 玩家资料 / 战绩 / 对局记录 / 各玩法牌桌分数（localStorage）
-│       ├── lobby.js    # 游戏大厅：资料卡、玩法卡、最近对局
-│       └── ui.js       # 渲染、交互、音效、听牌提示、结算/规则弹层
-├── test/rules.test.cjs # 34 个用例
+│       ├── net.js      # 联机网络层：WebSocket 连接、消息收发、断线通知
+│       ├── remote-game.js # RemoteGame：把服务端快照包装成本地 Game 同款接口
+│       ├── online.js   # 联机面板：连接 / 建房 / 加入 / 房间等待（机器人 / 规则 / 开局）
+│       ├── lobby.js    # 游戏大厅：资料卡、玩法卡、联机入口、最近对局
+│       └── ui.js       # 渲染、交互、音效、听牌提示、结算/规则弹层、联机特效回放
+├── test/
+│   ├── rules.test.cjs  # 34 个规则用例
+│   └── online.test.cjs # 4 个联机用例（房间 / 快照 / 整局 / 操作校验）
 └── start.bat
 ```
 
 ## 测试
 
 ```bash
-npm test                                  # 34 个用例
+npm test                                  # 38 个用例（规则 34 + 联机 4）
 npm run sim                               # 200 局经典模式压测
 node scripts/sim.cjs --mode=yitong --rounds=200   # 幺筒麻将压测
+npm run e2e                               # 联机协议端到端（真实 WS 服务器打完一局）
+npm run e2e:ui                            # 联机 UI 端到端（Electron 窗口点完一局）
 ```
 
-34 个用例全部通过：
+38 个用例全部通过：
 
 - 各牌型分值与「取最高不叠加」
 - 副露参与判定、副露后不算七对
@@ -163,6 +196,7 @@ node scripts/sim.cjs --mode=yitong --rounds=200   # 幺筒麻将压测
 - 幺筒不能碰、不能杠（手里四张也不弹暗杠）
 - 冲幺筒：首张向三家各收 5 分、第二张 3 分、第三张不收，且零和
 - 玩法切换：两套规则各算各的（`MODES` / `CHICKEN_SET`）
+- 联机：建房 / 加入 / 机器人 / 满员 / 房主转移；快照按座位轮转（人人 0 号位）且不下发他人手牌与暗杠；两真人+两机器人连打两局零和；非法操作（别人的回合、不存在的牌、乱胡）全被拒
 
 压测结果（各 200 局，四家总分恒为零和、无异常）：
 
@@ -170,6 +204,8 @@ node scripts/sim.cjs --mode=yitong --rounds=200   # 幺筒麻将压测
 | --- | --- | --- | --- | --- | --- |
 | 经典 | 176 胡 / 24 黄庄 | 27 | — | — | 2 · 0 · 0 |
 | 幺筒麻将 | 199 胡 / 1 黄庄 | 45 | 326 次 | 65 / 136 | 2 · 1 · 2 |
+
+联机端到端：`npm run e2e`（协议级，1 房主 + 1 玩家 + 2 机器人打满约定局数）与 `npm run e2e:ui`（Electron 真窗口点完一局）都通过；UI 级验证含结算面板弹出、四家零和、快照持续到达。
 
 ## 开发自检
 
@@ -179,12 +215,12 @@ npm run shot:preview    # 牌面预览 → output/tiles.png
 npm run sim             # 200 局随机对局压测：异常与零和检查
 ```
 
-`electron/main.js` 里的 `--shot-mode=lobby|table|claim|result|rules|tip|ting|auto|baoting|baoting-on|multi|yitong|yitong-result|yitong-rules` 可以分别截取对应界面，便于回归检查样式。
+`electron/main.js` 里的 `--shot-mode=lobby|table|claim|result|rules|tip|ting|auto|baoting|baoting-on|multi|yitong|yitong-result|yitong-rules|online|online-room|online-e2e` 可以分别截取对应界面，便于回归检查样式。
 
 ## 后续可以做的
 
 - 打包成 exe（接 `electron-builder`，现在只跑源码）
 - 让电脑也会报听 / 抢杠时更保守的取舍
-- 第三种玩法（比如只打筒条两门的「缺一门」），模式表已经预留：在 `rules.js` 的 `MODES` 里加一项即可
-- 联机（把 `game.js` 的状态机搬到服务端，前端只做 view）
+- 第三种玩法（比如只打筒条两门的「缺一门」），模式表已经预留：在 `rules.js` 的 `MODES` 里加一项即可，联机房间会自动出现在下拉里
+- 联机进阶：断线重连回座位（现在掉线转机器人代打）、观战位、房号外的房间列表
 - 更多皮肤：换一套牌背 / 桌布

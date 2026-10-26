@@ -926,6 +926,160 @@ body.in-lobby #stage-wrap { display: none; }
 body.in-lobby .game-only { display: none; }
 body.in-lobby .lobby-btn { display: none; }
 
+body.in-online #stage-wrap { display: none; }
+body.in-online .game-only { display: none; }
+body.in-online .lobby-btn { display: none; }
+
+/* ================= 联机对战 ================= */
+
+#online {
+  flex: 1;
+  display: none;
+  place-items: center;
+  overflow: hidden;
+  padding: 8px;
+}
+body.in-online #online { display: grid; }
+
+.ol-wrap {
+  width: var(--stage-w);
+  height: var(--stage-h);
+  transform-origin: center center;
+  display: grid;
+  place-items: center;
+}
+
+.ol-card {
+  width: 780px;
+  max-height: 720px;
+  overflow: auto;
+  padding: 22px 26px 18px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(24, 44, 36, 0.96), rgba(9, 20, 15, 0.97));
+  border: 1px solid rgba(231, 200, 120, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 22px 50px rgba(0, 0, 0, 0.5);
+}
+.ol-card.wide { width: 900px; }
+.ol-card::-webkit-scrollbar { width: 8px; }
+.ol-card::-webkit-scrollbar-thumb { background: rgba(231, 200, 120, 0.25); border-radius: 4px; }
+
+.ol-head { display: flex; align-items: center; gap: 12px; }
+.ol-head h2 { margin: 0; font-size: 20px; letter-spacing: 3px; color: #f2e6c6; }
+.ol-sub { margin: 8px 0 16px; font-size: 12px; line-height: 1.7; color: #8ba79a; }
+.ol-sub b.ol-code { color: #ffe0a0; font-size: 16px; letter-spacing: 4px; }
+
+.ol-badge {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  letter-spacing: 1px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #9fb8ab;
+  background: rgba(255, 255, 255, 0.04);
+}
+.ol-badge.on { border-color: rgba(127, 208, 176, 0.5); color: #a8ecd0; background: rgba(127, 208, 176, 0.12); }
+.ol-badge.off { border-color: rgba(231, 151, 138, 0.5); color: #e7978a; background: rgba(231, 151, 138, 0.1); }
+.ol-badge.run { border-color: rgba(231, 200, 120, 0.55); color: #f0d79a; background: rgba(231, 200, 120, 0.12); }
+
+.ol-field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: #8ba79a; }
+.ol-field.inline { flex-direction: row; align-items: center; gap: 8px; }
+.ol-field input, .ol-field select {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(231, 200, 120, 0.3);
+  background: rgba(0, 0, 0, 0.35);
+  color: #eef7f1;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.ol-field input:focus, .ol-field select:focus { border-color: rgba(231, 200, 120, 0.7); }
+.ol-row { display: flex; align-items: center; gap: 12px; margin: 10px 0 18px; }
+.ol-tip { font-size: 10.5px; color: #65806f; }
+
+.ol-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.ol-block {
+  padding: 14px 16px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ol-block h3 { margin: 0 0 2px; font-size: 13px; letter-spacing: 2px; color: #e7c878; }
+.ol-block .btn-primary { margin-top: 4px; width: 100%; }
+.ol-block .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+.ol-foot { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
+.ol-foot .btn-ghost:first-child { margin-right: auto; }
+.ol-note {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  color: #ffe0a0;
+  background: rgba(231, 200, 120, 0.1);
+  border: 1px solid rgba(231, 200, 120, 0.3);
+}
+
+.ol-seats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 4px 0 14px; }
+.ol-seat {
+  padding: 12px 12px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(231, 200, 120, 0.16);
+  text-align: center;
+}
+.ol-seat.empty { border-style: dashed; border-color: rgba(255, 255, 255, 0.12); }
+.ol-seat-no { font-size: 10px; letter-spacing: 2px; color: #65806f; }
+.ol-seat-name {
+  margin: 6px 0 8px;
+  font-size: 15px;
+  color: #f2e6c6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ol-seat.empty .ol-seat-name { color: #65806f; }
+.ol-seat-tags { display: flex; justify-content: center; gap: 5px; flex-wrap: wrap; }
+.ol-seat-tag {
+  font-size: 9.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #9fb8ab;
+}
+.ol-seat-tag.bot { border-color: rgba(127, 208, 176, 0.45); color: #a8ecd0; }
+.ol-seat-tag.host { border-color: rgba(231, 200, 120, 0.6); color: #f0d79a; }
+.ol-mini {
+  border: 0;
+  background: transparent;
+  color: #c98a7d;
+  font-size: 9.5px;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 1px 4px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ol-mini:hover { color: #f0b3a6; }
+
+.ol-config { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; background: rgba(0, 0, 0, 0.22); }
+
+/* 大厅第三张联机卡 */
+.mode-card.online::before { background: radial-gradient(120% 90% at 100% 0%, rgba(127, 170, 235, 0.16), transparent 62%); }
+.mode-card.online:hover { border-color: rgba(127, 170, 235, 0.5); }
+.mode-card.online .mc-tag { background: rgba(127, 170, 235, 0.14); border-color: rgba(127, 170, 235, 0.4); color: #bcd6f7; }
+.mode-card.online .mc-feats li::before { background: rgba(127, 170, 235, 0.8); }
+.mode-card.online .mc-play {
+  border-color: rgba(188, 214, 247, 0.7);
+  background: linear-gradient(180deg, #bcd6f7, #6f9fd8);
+  color: #0a2038;
+  box-shadow: 0 6px 16px rgba(127, 170, 235, 0.22), inset 0 1px 0 #eaf3ff;
+}
+
 .lb-wrap {
   width: var(--stage-w);
   height: var(--stage-h);

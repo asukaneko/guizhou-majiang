@@ -90,6 +90,7 @@
     el.autoBtn = $('#btn-auto');
     el.brandSub = $('#brand-sub');
     el.lobbyBtn = $('#btn-lobby');
+    el.online = $('#online');
   }
 
   /* ---------------- 出牌速度 ---------------- */
@@ -212,7 +213,7 @@
       setHtml(seat.querySelector('.plate'), plateHtml(p, p.id));
       setHtml(seat.querySelector('.melds'), meldsHtml(p, p.id));
       if (p.id !== 0) {
-        const n = p.hand.length;
+        const n = p.handCount != null ? p.handCount : (p.hand ? p.hand.length : 0);
         setHtml(seat.querySelector('.hand'), new Array(n).fill(backHtml()).join(''));
       }
     });
@@ -282,8 +283,8 @@
   }
 
   function renderCenter() {
-    el.round.textContent = `第 ${game.roundNo} 局`;
-    el.wall.textContent = game.wall.length;
+    el.round.textContent = `第 ${game.roundNo} 局${game.totalRounds ? ` / ${game.totalRounds}` : ''}`;
+    el.wall.textContent = game.isRemote ? game.wallLeft : game.wall.length;
     el.turn.textContent = turnLabel();
   }
 
@@ -771,9 +772,22 @@
       else if (act === 'claim-hu' || act === 'claim-peng' || act === 'claim-gang') {
         game.humanRespond(act.replace('claim-', ''));
       } else if (act === 'claim-pass') game.humanRespond('pass');
-      else if (act === 'next') { el.overlay.classList.add('hidden'); game.nextRound(); }
+      else if (act === 'next') {
+        el.overlay.classList.add('hidden');
+        if (game.isRemote) {
+          // 联机：房主开下一局，其他人回到房间等待
+          window.GZNet.send({ t: 'next' });
+          if (window.GZOnline.room && !window.GZOnline.room.host) {
+            toast('已请求下一局，等房主开局', 2200);
+            showOnlineRoom();
+          }
+        } else game.nextRound();
+      }
       else if (act === 'close') el.overlay.classList.add('hidden');
-      else if (act === 'lobby') showLobby();
+      else if (act === 'lobby') {
+        if (game && game.isRemote) showOnlineRoom();
+        else showLobby();
+      }
       else if (act === 'close-rules') el.overlay.classList.add('hidden');
     });
 
@@ -854,27 +868,140 @@
   /* ---------------- 缩放 ---------------- */
 
   function fit() {
-    const inLobby = el.lobby && !el.lobby.classList.contains('hidden');
-    const box = inLobby ? el.lobby : el.wrap;
+    const inOnline = el.online && !el.online.classList.contains('hidden');
+    const inLobby = el.lobby && !el.lobby.classList.contains('hidden') && !inOnline;
+    const box = inOnline ? el.online : inLobby ? el.lobby : el.wrap;
     const k = Math.min(
       (box.clientWidth - 4) / 1200,
       (box.clientHeight - 4) / 740
     );
     el.stage.style.transform = `scale(${k})`;
-    // 大厅是同一块 1200×740 的画布，跟着一起缩放
-    const lw = el.lobby && el.lobby.querySelector('.lb-wrap');
+    // 大厅 / 联机是同一块 1200×740 的画布，跟着一起缩放
+    const lw = inOnline
+      ? el.online.querySelector('.ol-wrap')
+      : el.lobby && el.lobby.querySelector('.lb-wrap');
     if (lw) lw.style.transform = `scale(${k})`;
   }
 
-  /* ---------------- 启动 / 大厅 ↔ 牌桌 ---------------- */
+  /* ---------------- 启动 / 大厅 ↔ 牌桌 ↔ 联机 ---------------- */
+
+  /** body 状态类：视图相关的 CSS 全走这里 */
+  function setView(name) {
+    document.body.classList.toggle('in-lobby', name === 'lobby');
+    document.body.classList.toggle('in-online', name === 'online');
+    document.body.classList.toggle('in-game', name === 'game');
+  }
 
   function showLobby() {
-    if (game) saveScore();
+    if (game && !game.isRemote) saveScore();
     el.overlay.classList.add('hidden');
     el.overlay.innerHTML = '';
     hideTip();
+    GZOnline.hide();
     GZLobby.show();
+    setView('lobby');
     if (el.brandSub) el.brandSub.textContent = '游戏大厅 · 单机版';
+  }
+
+  /** 联机面板 ↔ 大厅 */
+  function showOnline() {
+    GZLobby.hide();
+    el.overlay.classList.add('hidden');
+    hideTip();
+    GZOnline.show();
+    setView('online');
+    if (el.brandSub) el.brandSub.textContent = '联机对战';
+  }
+
+  /** 从结算面板回到房间等待页 */
+  function showOnlineRoom() {
+    el.overlay.classList.add('hidden');
+    hideTip();
+    GZOnline.show();
+    setView('online');
+    if (el.brandSub) el.brandSub.textContent = '联机对战 · 房间';
+  }
+
+  /** 房主点了「开始对局」：切到牌桌，用 RemoteGame 接住服务端快照 */
+  function enterOnlineGame() {
+    if (!game || !game.isRemote) {
+      game = new GZRemoteGame.RemoteGame();
+      window.__game = game;
+      game.on('state', () => { if (game === window.__game) render(); });
+      game.on('roundEnd', (res) => {
+        try {
+          if (!res.draw) Sound.hu();
+          recordRound(res);
+          setTimeout(() => {
+            try { showResult(res); } catch (err) { console.error('[remote] showResult', err); toast('结算渲染异常'); }
+          }, 650);
+        } catch (err) { console.error('[remote] roundEnd', err); }
+      });
+    }
+    GZOnline.hide();
+    GZLobby.hide();
+    setView('game');
+    render();
+    fit();
+    const sub = game.totalRounds ? `${game.mode.name} · ${game.totalRounds} 局` : game.mode.name;
+    if (el.brandSub) el.brandSub.textContent = `${sub} · 联机`;
+    toast('已进入牌桌，等服务端发牌', 2000);
+  }
+
+  function wireRemoteGame() {
+    const g = game;
+    const Net = window.GZNet;
+    Net.on('msg', onNetMsg);
+    Net.on('status', (st) => {
+      if (st === 'lost' && game === g) {
+        toast('与服务器断开，本桌结束', 3000);
+        showLobby();
+      }
+    });
+  }
+
+  /** 服务端快照与特效 */
+  function onNetMsg(msg) {
+    if (msg.t === 'snapshot') {
+      if (!game || !game.isRemote) return;
+      game.applySnapshot(msg.snap);
+      playFx(msg.fx || []);
+      return;
+    }    if (msg.t === 'room') {
+      // 开局后房号页同步（比如下一局被房主开了）
+      const r = msg.room;
+      if (game && game.isRemote && r.running && GZOnline.started) {
+        GZOnline.resetStarted();
+        toast(`房主开了第 ${r.roundNo} 局`, 2200);
+      }
+    }
+  }
+
+  /** 回放这轮快照里的动效 */
+  function playFx(list) {
+    for (const f of list) {
+      if (f.type === 'discard') Sound.discard();
+      else if (f.type === 'call') {
+        showCall(f.p, f.text);
+        if (f.text === '碰') Sound.peng();
+        else if (String(f.text).indexOf('杠') >= 0) Sound.gang();
+        else if (f.text === '胡') Sound.hu();
+      } else if (f.type === 'chong') {
+        Sound.tone(760, 0.12, 'triangle', 0.09);
+        Sound.tone(1140, 0.18, 'sine', 0.07, 0.09);
+        toast(`冲幺筒：向其他三家各收 ${f.points} 分`, 2400);
+      } else if (f.type === 'ting') {
+        Sound.tone(1046, 0.18, 'sine', 0.1);
+        toast(f.tianTing ? '天听！起手就听牌，胡牌 +6' : '已报听：手牌锁定，摸什么打什么', 2600);
+      } else if (f.type === 'blocked') {
+        if (!blockedShown) {
+          blockedShown = true;
+          toast('平胡没有豆，不能吃炮，只能自摸');
+        }
+      } else if (f.type === 'msg') {
+        if (f.text) toast(f.text, 2000);
+      }
+    }
   }
 
   function enterMode(modeId) {
@@ -945,9 +1072,14 @@
     g.on('roundEnd', (res) => {
       if (game !== g) return;
       if (!res.draw) Sound.hu();
-      recordRound(res);
+      if (!g.isRemote) {
+        recordRound(res);
+        saveScore();
+      } else {
+        // 联机：战绩记给玩家，但牌桌分数由服务器管
+        recordRound(res);
+      }
       setTimeout(() => { if (game === g) showResult(res); }, 650);
-      saveScore();
     });
     on('error', () => toast('对局出现异常，已重新发牌'));
   }
@@ -980,8 +1112,18 @@
       autoOn = localStorage.getItem('gz-auto') === '1';
     } catch (e) { /* ignore */ }
 
-    GZLobby.init({ onEnter: enterMode, onRules: showRules, onRender: fit });
-    window.__ui = { enterMode, showLobby, showRules };
+    GZOnline.init({ onError: toast, onEnterGame: enterOnlineGame });
+    GZLobby.init({ onEnter: enterMode, onRules: showRules, onRender: fit, onOnline: showOnline });
+    window.__ui = { enterMode, showLobby, showOnline, showRules, fit };
+
+    // 联机消息只在启动时挂一次；onNetMsg 自己判断当前牌桌
+    window.GZNet.on('msg', onNetMsg);
+    window.GZNet.on('status', (st) => {
+      if (st === 'lost') {
+        toast('与服务器断开连接', 3000);
+        if (game && game.isRemote) showLobby();
+      }
+    });
 
     blockedShown = false;
     bind();
