@@ -1165,8 +1165,7 @@
 
     blockedShown = false;
     bind();
-    if (['http:', 'https:'].includes(location.protocol)) showOnline();
-    else showLobby();
+    showLobby();
   }
 
   function saveScore() {

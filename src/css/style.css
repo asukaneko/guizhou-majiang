@@ -235,8 +235,10 @@ html, body {
 .hand .back {
   width: 24px;
   height: 32px;
+  flex: 0 0 auto;
   border-radius: 4px;
   position: relative;
+  overflow: hidden;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
 }
 .hand .back .face { border-radius: 4px; }
@@ -262,6 +264,15 @@ html, body {
 }
 .seat-left .hand, .seat-right .hand { flex-direction: column; gap: 2px; }
 .seat-left .hand .back, .seat-right .hand .back { width: 32px; height: 24px; }
+.seat-left .hand .back .face, .seat-right .hand .back .face {
+  inset: auto;
+  left: 50%;
+  top: 50%;
+  width: 24px;
+  height: 32px;
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+.seat-right .hand .back .face { transform: translate(-50%, -50%) rotate(-90deg); }
 
 /* 副露 */
 .melds { display: flex; gap: 6px; align-items: center; }

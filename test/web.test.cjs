@@ -106,7 +106,7 @@ test('网络：旧 socket 的延迟 close/message 不影响新连接；会话先
   net.disconnect(); assert.equal(timers.size, 0);
 });
 
-test('网页脚本集成：打开网页、入桌自动横屏、快照渲染、结算及下一局', () => {
+test('网页脚本集成：大厅入口、联机入桌自动横屏、快照渲染、结算及下一局', () => {
   // DOM 仅用于验证消息与渲染代码能协作；实际视觉布局由设备验收。
   const elements = new Map(), listeners = new Map(), sockets = [];
   class Element {
@@ -159,6 +159,11 @@ test('网页脚本集成：打开网页、入桌自动横屏、快照渲染、�
   ctx.window = ctx;
   for (const name of ['tiles.js', 'profile.js', 'viewport.js', 'net.js', 'remote-game.js', 'online.js', 'lobby.js', 'ui.js']) script(ctx, name);
   listeners.get('DOMContentLoaded')[0]();
+  assert.ok(doc.body.classList.contains('in-lobby'));
+  assert.equal(elements.get('#lobby').classList.contains('hidden'), false);
+  assert.equal(elements.get('#brand-sub').textContent, '贵州麻将 · 游戏大厅');
+  assert.equal(sockets.length, 0);
+  ctx.GZUI.showOnline();
   assert.ok(doc.body.classList.contains('in-online'));
   const ws = sockets[0]; ws.readyState = 1; ws.onopen();
   const receive = (m) => ws.onmessage({ data: JSON.stringify(m) });
