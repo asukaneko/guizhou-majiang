@@ -98,6 +98,7 @@
   /** 记一局结果：返回写入的对局记录 */
   function record(info) {
     const p = get();
+    if (info.onlineRoundId && p.history.some((h) => h.onlineRoundId === info.onlineRoundId)) return;
     const s = mode(info.mode);
     const delta = clampInt(info.delta, 0);
     const win = !!info.win;
@@ -116,6 +117,7 @@
     if (delta > s.best) s.best = delta;
 
     const entry = {
+      onlineRoundId: info.onlineRoundId,
       t: Date.now(),
       mode: info.mode,
       delta,

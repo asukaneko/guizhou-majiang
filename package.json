@@ -2,10 +2,11 @@
   "name": "guizhou-mahjong",
   "version": "1.0.0",
   "private": true,
-  "description": "贵州麻将 · 贵阳捉鸡 / 幺筒麻将 桌面版（Electron + 原生 JS）",
+  "description": "贵州麻将 · 贵阳捉鸡 / 幺筒麻将 网页联机",
   "main": "electron/main.js",
   "scripts": {
-    "start": "node scripts/launch.js",
+    "start": "node server/index.js",
+    "start:desktop": "node scripts/launch.js",
     "shot": "node scripts/launch.js --shot --shot-mode=table --shot-path=output/table.png",
     "shot:lobby": "node scripts/launch.js --shot --shot-mode=lobby --shot-path=output/lobby.png",
     "shot:preview": "node scripts/launch.js --shot --shot-url=src/preview.html --shot-path=output/tiles.png",
@@ -14,7 +15,7 @@
     "server": "node server/index.js",
     "e2e": "node scripts/e2e.cjs",
     "e2e:ui": "node scripts/e2e-render.cjs",
-    "test": "node --test test/rules.test.cjs test/online.test.cjs"
+    "test": "node --test test/*.test.cjs"
   },
   "devDependencies": {
     "electron": "45.0.0"

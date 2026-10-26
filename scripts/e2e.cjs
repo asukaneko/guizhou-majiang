@@ -1,145 +1,95 @@
-/* 端到端自检：真实起一个 HTTP+WS 服务器，用 4 个客户端连进去打完一局。
- * 用法：node scripts/e2e.cjs
- */
+/* 真实 HTTP/WS：两种玩法同时开桌，各连打两局，并在对局中恢复掉线座位。 */
 'use strict';
-
-const path = require('path');
-const { spawn } = require('child_process');
+const assert = require('node:assert/strict');
+const { once } = require('node:events');
 const WebSocket = require('ws');
+const { createMahjongServer } = require('../server/index.js');
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const PORT = 8791;
-
-function startServer() {
-  const child = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'index.js'), `--port=${PORT}`], {
-    stdio: ['ignore', 'pipe', 'pipe']
+async function client(url) {
+  const c = { ws: new WebSocket(url), messages: [], handled: new Set(), cursor: 0, auto: false };
+  c.send = (msg) => c.ws.send(JSON.stringify(msg));
+  c.ws.on('message', (raw) => {
+    const m = JSON.parse(raw.toString()); c.messages.push(m);
+    if (!c.auto || m.t !== 'snapshot' || !m.snap.awaiting || m.snap.awaiting.auto) return;
+    const a = m.snap.awaiting;
+    if (c.handled.has(a.id)) return;
+    c.handled.add(a.id);
+    let action;
+    if (a.kind === 'claim') action = a.options.includes('hu') ? { type: 'claim', act: 'hu' } : { type: 'pass' };
+    else if (a.self?.hu) action = { type: 'hu' };
+    else if (a.self?.angang?.length) action = { type: 'gang', gangType: 'angang', tile: a.self.angang[0] };
+    else {
+      const me = m.snap.players[0];
+      action = { type: 'discard', tile: me.hand.includes(me.justDrawn) ? me.justDrawn : me.hand[0] };
+    }
+    c.send({ t: 'action', action: { ...action, promptId: a.id } });
   });
-  let buf = '';
-  child.stdout.on('data', (d) => { buf += d.toString(); });
-  child.stderr.on('data', (d) => process.stderr.write(d));
-  return new Promise((resolve, reject) => {
-    const t0 = Date.now();
-    const tick = () => {
-      if (buf.includes('已启动')) resolve(child);
-      else if (Date.now() - t0 > 8000) reject(new Error('server start timeout'));
-      else setTimeout(tick, 150);
-    };
-    tick();
-  });
-}
-
-function client(name) {
-  const c = { name, sent: [], ws: null, snaps: 0, errs: [] };
-  c.connect = () => new Promise((resolve, reject) => {
-    c.ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
-    c.ws.on('open', resolve);
-    c.ws.on('error', reject);
-    c.ws.on('message', (raw) => {
-      const msg = JSON.parse(raw.toString());
-      c.sent.push(msg);
-      if (msg.t === 'snapshot') c.snaps++;
-      if (msg.t === 'error') c.errs.push(msg.err);
-      if (c.onmsg) c.onmsg(msg);
-    });
-  });
-  c.send = (obj) => c.ws.send(JSON.stringify(obj));
-  c.close = () => c.ws.close();
+  c.next = async (t, predicate = () => true) => {
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const idx = c.messages.findIndex((m, i) => i >= c.cursor && m.t === t && predicate(m));
+      if (idx >= 0) { c.cursor = idx + 1; return c.messages[idx]; }
+      const err = c.messages.find((m) => m.t === 'error');
+      if (err) throw new Error(err.err);
+      await wait(5);
+    }
+    throw new Error(`等待 ${t} 超时`);
+  };
+  await once(c.ws, 'open'); c.welcome = await c.next('welcome');
   return c;
 }
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-
 (async () => {
-  const server = await startServer();
-  const fail = (why) => { console.error('E2E FAIL:', why); server.kill(); process.exit(1); };
-
+  const app = createMahjongServer({ gameOptions: { speed: 100 } });
   try {
-    const host = client('房主');
-    const p2 = client('阿乙');
-    await host.connect();
-    await p2.connect();
-
-    host.send({ t: 'hello', name: '房主' });
-    p2.send({ t: 'hello', name: '阿乙' });
-    await wait(150);
-
-    // 建房 → p2 房号加入 → 补两个机器人凑满
-    host.send({ t: 'create', config: { mode: 'yitong', totalRounds: 1 } });
-    await wait(300);
-    if (!host.sent.some((m) => m.t === 'joined')) fail('房主没收到 joined');
-    const roomMsg = host.sent.find((m) => m.t === 'joined');
-    p2.send({ t: 'join', room: roomMsg.room.id });
-    await wait(300);
-    host.send({ t: 'addbot' });
-    await wait(200);
-    host.send({ t: 'addbot' });
-    const deadline0 = Date.now() + 5000;
-    while (Date.now() < deadline0) {
-      const r = host.sent.filter((m) => m.t === 'room').pop();
-      if (r && r.room.full) break;
-      await wait(120);
+    app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+    const url = `ws://127.0.0.1:${app.server.address().port}`;
+    const tables = [];
+    for (const mode of ['yitong', 'classic']) {
+      const a = await client(url), b = await client(url);
+      a.send({ t: 'hello', name: `${mode}甲` }); b.send({ t: 'hello', name: `${mode}乙` });
+      a.send({ t: 'create', config: { mode, totalRounds: 2 } });
+      const id = (await a.next('joined')).room.id;
+      b.send({ t: 'join', room: id }); await b.next('joined');
+      a.send({ t: 'addbot' }); a.send({ t: 'addbot' });
+      await a.next('room', (m) => m.room.full);
+      a.send({ t: 'start' }); await a.next('snapshot', (m) => m.snap.awaiting);
+      tables.push({ mode, id, a, b });
     }
-    const lastRoom = () => host.sent.filter((m) => m.t === 'room').pop();
-    if (!lastRoom() || !lastRoom().room.full) fail('p2 加入 + 两个机器人后应满员');
-
-    // 开局
-    host.send({ t: 'start' });
-    await wait(400);
-
-    // 自动应答真人提示：只看最新快照，每条快照最多回一次
-    const mkAuto = (c) => {
-      let lastSnap = null;
-      c.onmsg = (msg) => {
-        if (msg.t !== 'snapshot') return;
-        lastSnap = msg;
-        const a = msg.snap.awaiting;
-        if (!a) return;
-        if (a.kind === 'claim') {
-          const act = a.options.includes('hu') ? 'hu' : 'pass';
-          c.send({ t: 'action', action: act === 'hu' ? { type: 'claim', act } : { type: 'pass' } });
-          return;
+    // 第一桌掉线后恢复；第二桌仍在进行，避免仅验证单房顺序执行。
+    const first = tables[0], originalUid = first.a.welcome.uid, token = first.a.welcome.resumeToken;
+    first.a.ws.terminate();
+    await first.b.next('room', (m) => m.room.seats[0].offline);
+    const resumed = await client(url);
+    resumed.send({ t: 'resume', token });
+    assert.equal((await resumed.next('resumed')).uid, originalUid);
+    await resumed.next('joined'); first.a = resumed;
+    for (const table of tables) for (const c of [table.a, table.b]) { c.auto = true; c.send({ t: 'sync' }); }
+    for (let round = 1; round <= 2; round++) {
+      await Promise.all(tables.map(async (table) => {
+        const done = await table.a.next('snapshot', (m) => m.snap.roundNo === round && m.snap.result);
+        assert.equal(done.snap.mode, table.mode);
+        assert.equal(done.snap.scores.reduce((a, b) => a + b, 0), 0);
+        assert.ok(done.snap.players.slice(1).every((p) => !p.hand.length));
+        if (round === 1) {
+          const room = app.rooms.get(table.id);
+          const nextDealer = room.game.nextDealer;
+          const owner = room.hostUid === table.b.welcome.uid ? table.b : table.a;
+          owner.send({ t: 'next' });
+          const opening = await table.a.next('snapshot', (m) => m.snap.roundNo === 2 && m.snap.phase === 'dealing');
+          assert.deepEqual(opening.snap.scores, done.snap.scores, '换局继承累计分');
+          assert.equal(opening.snap.dealer, nextDealer, '换局继承下一庄家');
         }
-        const me = msg.snap.players[0];
-        if (a.self && a.self.hu) { c.send({ t: 'action', action: { type: 'hu' } }); return; }
-        const tile = me.hand && me.hand.includes(me.justDrawn) ? me.justDrawn : (me.hand || [])[0];
-        if (tile != null) c.send({ t: 'action', action: { type: 'discard', tile } });
-      };
-    };
-    mkAuto(host);
-    mkAuto(p2);
-
-    // 等对局结束（最多 120s）
-    const deadline = Date.now() + 120000;
-    let finalSnap = null;
-    const watch = setInterval(() => {
-      for (const c of [host, p2]) {
-        const last = c.sent.filter((m) => m.t === 'snapshot').pop();
-        if (last && last.snap.phase === 'ended' && last.snap.result) finalSnap = last.snap;
-      }
-    }, 300);
-    while (!finalSnap && Date.now() < deadline) await wait(200);
-    clearInterval(watch);
-
-    if (!finalSnap) fail('120 秒内没等到对局结束');
-    if (finalSnap.scores.reduce((a, b) => a + b, 0) !== 0) fail('结束分不零和');
-    for (const c of [host, p2]) {
-      const last = c.sent.filter((m) => m.t === 'snapshot').pop();
-      if (last.snap.players[0].name !== c.name) fail(`${c.name} 没坐 0 号位`);
-      if (last.snap.players.slice(1).some((pl) => pl.hand && pl.hand.length)) fail('有人收到了别人的手牌');
+        console.log(`  ${table.mode} 第 ${round} 局完成，累计分 ${done.snap.scores.join(', ')}`);
+      }));
     }
-    if (host.errs.length) fail(`服务端报错：${host.errs.join(';')}`);
-
-    // 下一局由房主发起（这里只有 1 局，验证拒绝即可）
-    host.send({ t: 'next' });
-    await wait(200);
-    if (!host.errs.some((e) => e.includes('已打满'))) fail('打满局数后 next 应被拒');
-
-    console.log('E2E OK');
-    console.log('  模式:', finalSnap.mode, ' 局数:', finalSnap.roundNo + '/' + finalSnap.totalRounds);
-    console.log('  结束分:', finalSnap.scores.join(', '));
-    console.log('  host 快照数:', host.snaps, ' p2 快照数:', p2.snaps);
-    server.kill();
-    process.exit(0);
-  } catch (err) {
-    fail(err.stack || err.message);
-  }
-})();
+    for (const table of tables) {
+      for (const c of [table.a, table.b]) assert.deepEqual(c.messages.filter((m) => m.t === 'error'), []);
+      const owner = app.rooms.get(table.id).hostUid === table.b.welcome.uid ? table.b : table.a;
+      owner.send({ t: 'start' });
+      await owner.next('error', (m) => m.err.includes('已打满'));
+    }
+    console.log('E2E OK：并行双玩法、四局、断线恢复、换局、分数零和、局数限制');
+  } finally { await app.close(); }
+})().catch((err) => { console.error('E2E FAIL:', err); process.exitCode = 1; });

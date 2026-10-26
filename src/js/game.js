@@ -115,7 +115,7 @@
       // 四家先各发 13 张；庄家首摸由 playLoop 统一完成，避免庄家多摸一张。
       for (const p of this.players) {
         p.hand = R.sortHand(p.hand);
-        p.tingAtDeal = R.tenpaiTiles(p.hand, []).length > 0;
+        p.tingAtDeal = R.tenpaiTiles(p.hand, [], this.mode).length > 0;
       }
       this.turn = this.dealer;
       this.emitState();
@@ -146,6 +146,7 @@
           this.lastDraw = tile;
           this.emitState();
           await this.delay(200);
+          if (this.phase !== 'playing') return;
 
           if (!pl.isHuman) {
             const self = this.selfActions(cur);
@@ -189,8 +190,10 @@
         this.discard(cur, tile);
         const hot = this.discardHot;
         await this.delay(240);
+        if (this.phase !== 'playing') return;
 
         const claim = await this.resolveClaims(cur, tile);
+        if (this.phase !== 'playing') return;
         if (!claim) {
           cur = (cur + 1) % 4;
           needDraw = true; gangFlower = false;
@@ -271,7 +274,7 @@
     selfActions(p) {
       const pl = this.players[p];
       const ready = pl.hand.length === 14 - pl.melds.length * 3;
-      const info = ready && !pl.mustDiscard ? R.winInfo(pl.hand, pl.melds) : null;
+      const info = ready && !pl.mustDiscard ? R.winInfo(pl.hand, pl.melds, this.mode) : null;
       const c = R.counts(pl.hand);
       const angang = [];
       const bugang = [];
@@ -286,20 +289,20 @@
 
     askDiscard(p, self) {
       const pl = this.players[p];
-      if (!pl.isHuman) {
-        return this.delay(360).then(() => {
-          if (this.phase !== 'playing') return { type: 'none' };
-          const tile = this.aiDiscard(p);
-          return { type: 'discard', tile };
-        });
-      }
-
-      // 报听：手牌锁定，能胡就胡、摸什么打什么
+      // 报听锁牌对掉线代打也生效。
       if (pl.tingDeclared) {
         const auto = self && self.hu
           ? { type: 'hu' }
           : { type: 'discard', tile: pl.justDrawn != null ? pl.justDrawn : this.bestTingDiscard(p) };
         return this.playAuto(p, self, auto, 340, true);
+      }
+      if (!pl.isHuman) {
+        return this.delay(360).then(() => {
+          if (this.phase !== 'playing') return { type: 'none' };
+          if (pl.isHuman) return this.askDiscard(p, this.selfActions(p));
+          const tile = this.aiDiscard(p);
+          return { type: 'discard', tile };
+        });
       }
 
       // 自动摸打：听牌后由程序替你摸打
@@ -319,7 +322,7 @@
         && pl.hand.indexOf(M.wild) >= 0) {
         // 冲出去立刻收三家分：不影响听牌就冲，否则也会有一半概率去抢
         const rest = removeTiles(pl.hand, M.wild, 1);
-        if (R.tenpaiTiles(rest, pl.melds).length > 0 || Math.random() < 0.45) return M.wild;
+        if (R.tenpaiTiles(rest, pl.melds, M).length > 0 || Math.random() < 0.45) return M.wild;
       }
       return AI.chooseDiscard(pl.hand, pl.melds, M);
     }
@@ -416,6 +419,7 @@
       // 补杠可能被抢杠胡，抢杠时杠不成立
       if (type === 'bugang') {
         const robbers = await this.resolveRobKong(p, tile);
+        if (this.phase !== 'playing') return false;
         if (robbers.length) {
           this.settleWin(robbers, { selfDraw: false, from: p, robKong: true });
           return false;
@@ -446,7 +450,7 @@
       for (const j of payers) { deltas[j] -= KONG_POINT; deltas[p] += KONG_POINT; }
       this.applyDeltas(deltas);
       this.kongLog.push({ p, type, tile, deltas, payers });
-      this.note(`${pl.name} ${pl.said} ${R.tileName(tile)}（${payers.map((i) => this.players[i].name).join('、')}各付 ${KONG_POINT}）`);
+      this.note(`${pl.name} ${pl.said}${type === 'angang' ? '' : ' ' + R.tileName(tile)}（${payers.map((i) => this.players[i].name).join('、')}各付 ${KONG_POINT}）`);
       if (type === 'minggang') this.settleResponsibility(p, tile, from);
       this.lastKongBy = p; // 杠后打出的牌若被胡 → 热炮
       this.emit('call', { p, text: pl.said, tile });
@@ -487,7 +491,7 @@
         const pl = this.players[p];
         const c = R.counts(pl.hand);
         const acts = [];
-        const info = R.winInfo(pl.hand.concat(tile), pl.melds);
+        const info = R.winInfo(pl.hand.concat(tile), pl.melds, this.mode);
         if (info && R.canChiPao(info)) acts.push('hu');
         if (info && !R.canChiPao(info) && pl.isHuman) {
           this.emit('blocked', { info, tile });
@@ -536,7 +540,7 @@
       for (let k = 1; k < 4; k++) {
         const p = (kongger + k) % 4;
         const pl = this.players[p];
-        const info = R.winInfo(pl.hand.concat(tile), pl.melds);
+        const info = R.winInfo(pl.hand.concat(tile), pl.melds, this.mode);
         if (info) claims.push({ p, k, info });
       }
       if (!claims.length) return [];
@@ -671,7 +675,7 @@
         const pl = this.players[p];
         const winTile = w.winTile != null ? w.winTile : null;
         const fullHand = opts.selfDraw ? pl.hand.slice() : R.sortHand(pl.hand.concat(winTile));
-        const info = R.winInfo(fullHand, pl.melds);
+        const info = R.winInfo(fullHand, pl.melds, this.mode);
 
         const extra = [];
         let points = info ? info.points : 1;
@@ -722,7 +726,7 @@
       const chickens = R.chickenSet(flip, this.mode);
       const winnerSeats = results.map((r) => r.p);
       const isTing = this.players.map((q, i) =>
-        winnerSeats.indexOf(i) >= 0 || R.tenpaiTiles(q.hand, q.melds).length > 0);
+        winnerSeats.indexOf(i) >= 0 || R.tenpaiTiles(q.hand, q.melds, this.mode).length > 0);
       const charge = this.firstChicken && !this.firstChicken.taken ? this.firstChicken : null;
       const chickenCount = this.players.map((q, i) => {
         let n = R.chickenPoints(q.hand, q.melds, q.discards, chickens);
@@ -780,17 +784,17 @@
       const names = results.map((r) => this.players[r.p].name).join('、');
       const desc = results.map((r) => `${r.info ? r.info.name : '胡牌'} ${r.points} 分`).join('、');
       this.note(`${names} ${opts.selfDraw ? '自摸' : '胡牌'}：${desc}`);
+      this.nextDealer = first.p;
       this.emit('win', this.result);
       this.emitState();
       this.emit('roundEnd', this.result);
-      this.nextDealer = first.p;
       return this.result;
     }
 
     settleDraw() {
       if (this.phase === 'ended') return;
       this.phase = 'ended';
-      const ting = this.players.map((q) => R.tingValue(q.hand, q.melds));
+      const ting = this.players.map((q) => R.tingValue(q.hand, q.melds, this.mode));
       const deltas = [0, 0, 0, 0];
       for (let i = 0; i < 4; i++) {
         if (!ting[i].tiles.length) continue;
@@ -813,10 +817,10 @@
         chongLog: this.penaltyLog.filter((k) => k.kind === '冲幺筒')
       };
       this.note('牌墙摸完，黄庄查叫');
+      this.nextDealer = this.dealer;
       this.emit('draw', this.result);
       this.emitState();
       this.emit('roundEnd', this.result);
-      this.nextDealer = this.dealer;
       return this.result;
     }
 
@@ -825,7 +829,7 @@
     tingOf(p) {
       const pl = this.players[p];
       if (pl.hand.length !== 13 - pl.melds.length * 3) return null;
-      const t = R.tingValue(pl.hand, pl.melds);
+      const t = R.tingValue(pl.hand, pl.melds, this.mode);
       return t.tiles.length ? t : null;
     }
 

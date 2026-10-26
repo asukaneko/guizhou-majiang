@@ -1,9 +1,4 @@
-/* 联机服务器：
- *   node server/index.js [--port=8788] [--host=0.0.0.0]
- *
- * - 同一个端口：HTTP 提供 src/ 静态页（浏览器直接打开也能玩），Upgrade 升级为 WebSocket
- * - 房主建房拿 4 位房号，玩家用房号加入；房主可加/移机器人、改玩法与局数、开局
- */
+/* HTTP 网页与 WebSocket 共用端口；规则与房间状态由服务端维护。 */
 'use strict';
 
 const http = require('http');
@@ -13,207 +8,223 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const { Room } = require('./room.js');
 
-const arg = (name, def) => {
-  const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
-  return hit ? hit.split('=')[1] : def;
-};
-
-const PORT = parseInt(arg('port', '8788'), 10);
-const HOST = arg('host', '0.0.0.0');
 const SRC = path.join(__dirname, '..', 'src');
-
 const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.json': 'application/json; charset=utf-8'
 };
 
 function serveStatic(req, res) {
-  const urlPath = decodeURIComponent(req.url.split('?')[0]);
-  let rel = urlPath === '/' ? '/index.html' : urlPath;
-  const file = path.normalize(path.join(SRC, rel));
-  if (!file.startsWith(SRC)) { res.writeHead(403); res.end('forbidden'); return; }
+  if (!['GET', 'HEAD'].includes(req.method)) {
+    res.writeHead(405, { Allow: 'GET, HEAD' }); res.end(); return;
+  }
+  let rel;
+  try { rel = decodeURIComponent(req.url.split('?')[0]); }
+  catch { res.writeHead(400); res.end('bad request'); return; }
+  const file = path.resolve(SRC, '.' + (rel === '/' ? '/index.html' : rel));
+  const relative = path.relative(SRC, file);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative) || rel.includes('\0')) {
+    res.writeHead(403); res.end('forbidden'); return;
+  }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); res.end('not found'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
-    res.end(data);
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
+      'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-cache'
+    });
+    res.end(req.method === 'HEAD' ? undefined : data);
   });
 }
 
-const server = http.createServer(serveStatic);
-const wss = new WebSocketServer({ server });
+function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000, gameOptions = {} } = {}) {
+  const server = http.createServer(serveStatic);
+  const wss = new WebSocketServer({ server, maxPayload: 16 * 1024 });
+  const rooms = new Map();
+  const players = new Map();
+  const sessions = new Map();
+  const send = (ws, obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+  const onlineCount = () => [...players.values()].filter((p) => p.ws && p.ws.readyState === 1).length;
 
-/* ---------------- 在线玩家与房间表 ---------------- */
-
-const rooms = new Map();          // 房号 -> Room
-const players = new Map();        // uid -> {uid, name, ws, room}
-
-const newRoomCode = () => {
-  for (let i = 0; i < 50; i++) {
-    const code = String(1000 + ((Math.random() * 9000) | 0));
-    if (!rooms.has(code)) return code;
+  function newRoomCode() {
+    const start = crypto.randomInt(9000);
+    for (let i = 0; i < 9000; i++) {
+      const code = String(1000 + (start + i) % 9000);
+      if (!rooms.has(code)) return code;
+    }
+    throw new Error('房间数量已满，请稍后再试');
   }
-  return String(Date.now()).slice(-6);
-};
 
-const send = (ws, obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
-
-const playerList = () => [...players.values()].map((p) => p.name);
-
-function leaveRoom(p, silent) {
-  const room = p.room;
-  if (!room) return;
-  const seat = room.seatOf(p.uid);
-  room.remove(p.uid);
-  p.room = null;
-  if (room.empty()) {
-    room.abort();
-    rooms.delete(room.id);
-  } else {
-    room.broadcastRoom();
-    if (!silent) room.pushFx({ type: 'msg', text: `${p.name} 离开了${seat >= 0 ? '，该座位改由电脑代打' : ''}` });
-    if (room.game) room.broadcastGame();
-  }
-}
-
-wss.on('connection', (ws) => {
-  const uid = crypto.randomUUID();
-  const me = { uid, name: '玩家', ws, room: null };
-  players.set(uid, me);
-  send(ws, { t: 'welcome', uid, online: playerList().length });
-
-  ws.on('message', (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw.toString()); } catch (e) { return; }
-    try { handleMessage(me, msg); } catch (err) {
-      send(ws, { t: 'error', err: err.message || String(err) });
-    }
-  });
-
-  ws.on('close', () => {
-    leaveRoom(me);
-    players.delete(uid);
-  });
-  ws.on('error', () => { /* close 会跟进来 */ });
-});
-
-function handleMessage(me, msg) {
-  switch (msg.t) {
-    case 'hello': {
-      me.name = String(msg.name || '玩家').trim().slice(0, 10) || '玩家';
-      if (me.room) me.room.broadcastRoom();
-      send(me.ws, { t: 'hello-ok', name: me.name });
-      return;
-    }
-
-    case 'create': {
-      if (me.room) leaveRoom(me);
-      const code = newRoomCode();
-      const room = new Room(code, me);
-      rooms.set(code, room);
-      me.room = room;
-      if (msg.config) room.setConfig(me.uid, msg.config);
-      send(me.ws, { t: 'joined', room: room.publicState(me.uid) });
-      return;
-    }
-
-    case 'join': {
-      if (me.room) leaveRoom(me);
-      const code = String(msg.room || '').trim();
-      const room = rooms.get(code);
-      if (!room) { send(me.ws, { t: 'error', err: `没有房号 ${code} 的房间` }); return; }
-      const seats = room.publicState(me.uid);
-      if (seats.full) { send(me.ws, { t: 'error', err: '房间已满' }); return; }
-      room.add(me);
-      me.room = room;
-      room.pushFx({ type: 'msg', text: `${me.name} 加入了房间` });
-      send(me.ws, { t: 'joined', room: room.publicState(me.uid) });
+  function leaveRoom(p) {
+    const room = p.room;
+    if (!room) return;
+    p.room = null;
+    room.remove(p.uid);
+    if (room.empty()) {
+      room.abort(); rooms.delete(room.id);
+    } else {
       room.broadcastRoom();
-      return;
+      room.pushFx({ type: 'msg', text: `${p.name} 离开了房间` });
+      room.broadcastGame();
     }
-
-    case 'addbot': {
-      if (!me.room) { send(me.ws, { t: 'error', err: '你还没有进房间' }); return; }
-      if (!me.room.isHost(me.uid)) { send(me.ws, { t: 'error', err: '只有房主能加机器人' }); return; }
-      const res = me.room.addBot();
-      if (!res.ok) { send(me.ws, { t: 'error', err: res.err }); return; }
-      me.room.broadcastRoom();
-      return;
-    }
-
-    case 'removebot': {
-      if (!me.room || !me.room.isHost(me.uid)) return;
-      const res = me.room.removeBot(msg.uid);
-      if (!res.ok) { send(me.ws, { t: 'error', err: res.err }); return; }
-      me.room.broadcastRoom();
-      return;
-    }
-
-    case 'config': {
-      if (!me.room) return;
-      const res = me.room.setConfig(me.uid, msg.config || {});
-      if (!res.ok) send(me.ws, { t: 'error', err: res.err });
-      return;
-    }
-
-    case 'start': {
-      if (!me.room) return;
-      if (!me.room.isHost(me.uid)) { send(me.ws, { t: 'error', err: '只有房主能开局' }); return; }
-      const res = me.room.start();
-      if (!res.ok) send(me.ws, { t: 'error', err: res.err });
-      return;
-    }
-
-    case 'next': {
-      if (!me.room) return;
-      const res = me.room.nextRound(me.uid);
-      if (!res.ok) send(me.ws, { t: 'error', err: res.err });
-      return;
-    }
-
-    case 'leave': {
-      leaveRoom(me);
-      send(me.ws, { t: 'left' });
-      return;
-    }
-
-    case 'action': {
-      if (!me.room) return;
-      const res = me.room.action(me.uid, msg.action || {});
-      if (!res.ok) send(me.ws, { t: 'error', err: res.err });
-      return;
-    }
-
-    /* 玩家（重新）进入牌桌：立刻补发一份当前快照，不等下一次状态变化 */
-    case 'sync': {
-      if (!me.room || !me.room.game) return;
-      const seat = me.room.seatOf(me.uid);
-      if (seat < 0) return;
-      me.room.sendSnapshotTo(seat);
-      return;
-    }
-
-    case 'ping': send(me.ws, { t: 'pong' }); return;
-
-    default: send(me.ws, { t: 'error', err: `未知消息 ${msg.t}` });
   }
+
+  function forget(p) {
+    clearTimeout(p.expiry);
+    sessions.delete(p.token); players.delete(p.uid);
+  }
+
+  function resume(current, token, ws) {
+    const previous = typeof token === 'string' && sessions.get(token);
+    if (!previous || previous === current) {
+      send(ws, { t: 'resume-failed', uid: current.uid, resumeToken: current.token });
+      return current;
+    }
+    if (current.room) throw new Error('请先退出当前房间再恢复会话');
+    forget(current);
+    clearTimeout(previous.expiry);
+    const oldSocket = previous.ws;
+    previous.ws = ws;
+    // 旧连接的 close/message 不能再影响已恢复的会话。
+    if (oldSocket && oldSocket !== ws) oldSocket.close(4001, 'session resumed elsewhere');
+    send(ws, { t: 'resumed', uid: previous.uid, resumeToken: previous.token });
+    if (previous.room) {
+      const room = previous.room;
+      room.reconnect(previous);
+      send(ws, { t: 'joined', resumed: true, room: room.publicState(previous.uid) });
+      room.broadcastRoom(); room.broadcastGame();
+    }
+    return previous;
+  }
+
+  function handleMessage(me, msg) {
+    const requireRoom = () => {
+      if (!me.room) throw new Error('你还没有进房间');
+      return me.room;
+    };
+    const check = (result) => { if (!result.ok) throw new Error(result.err); };
+    switch (msg.t) {
+      case 'hello':
+        me.name = String(msg.name || '玩家').trim().slice(0, 10) || '玩家';
+        if (me.room) {
+          me.room.rename(me.uid, me.name);
+          me.room.broadcastRoom(); me.room.broadcastGame();
+        }
+        send(me.ws, { t: 'hello-ok', name: me.name }); return;
+      case 'create': {
+        const room = new Room(newRoomCode(), me, gameOptions);
+        if (msg.config !== undefined) check(room.setConfig(me.uid, msg.config, false));
+        leaveRoom(me);
+        rooms.set(room.id, room); me.room = room;
+        send(me.ws, { t: 'joined', room: room.publicState(me.uid) }); return;
+      }
+      case 'join': {
+        const code = String(msg.room || '').trim();
+        const room = rooms.get(code);
+        if (!room) throw new Error(`没有房号 ${code} 的房间`);
+        if (me.room !== room) {
+          room.add(me); // 先校验目标房；失败时保留原房间。
+          leaveRoom(me); me.room = room;
+        }
+        send(me.ws, { t: 'joined', room: room.publicState(me.uid) });
+        room.broadcastRoom();
+        if (room.game) room.sendSnapshotTo(room.seatOf(me.uid));
+        return;
+      }
+      case 'addbot': {
+        const room = requireRoom();
+        if (!room.isHost(me.uid)) throw new Error('只有房主能加机器人');
+        check(room.addBot()); room.broadcastRoom(); return;
+      }
+      case 'removebot': {
+        const room = requireRoom();
+        if (!room.isHost(me.uid)) throw new Error('只有房主能移除机器人');
+        check(room.removeBot(msg.uid)); room.broadcastRoom(); return;
+      }
+      case 'config': check(requireRoom().setConfig(me.uid, msg.config)); return;
+      case 'start': {
+        const room = requireRoom();
+        if (!room.isHost(me.uid)) throw new Error('只有房主能开局');
+        check(room.start()); return;
+      }
+      case 'next': check(requireRoom().nextRound(me.uid)); return;
+      case 'leave': leaveRoom(me); send(me.ws, { t: 'left' }); return;
+      case 'action': check(requireRoom().action(me.uid, msg.action)); return;
+      case 'sync': {
+        const room = requireRoom();
+        send(me.ws, { t: 'room', room: room.publicState(me.uid) });
+        if (room.game) room.sendSnapshotTo(room.seatOf(me.uid));
+        return;
+      }
+      case 'ping': send(me.ws, { t: 'pong' }); return;
+      default: throw new Error(`未知消息 ${msg.t}`);
+    }
+  }
+
+  wss.on('connection', (ws) => {
+    let me = { uid: crypto.randomUUID(), token: crypto.randomBytes(32).toString('hex'), name: '玩家', ws, room: null };
+    players.set(me.uid, me); sessions.set(me.token, me);
+    ws.alive = true;
+    ws.on('pong', () => { ws.alive = true; });
+    send(ws, { t: 'welcome', uid: me.uid, resumeToken: me.token, online: onlineCount() });
+    ws.on('message', (raw, binary) => {
+      if (me.ws !== ws) return;
+      try {
+        if (binary) throw new Error('只接受 JSON 文本消息');
+        const msg = JSON.parse(raw.toString());
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.t !== 'string') throw new Error('消息格式不正确');
+        if (msg.t === 'resume') me = resume(me, msg.token, ws);
+        else handleMessage(me, msg);
+      } catch (err) { send(ws, { t: 'error', err: err instanceof SyntaxError ? '消息不是有效 JSON' : err.message }); }
+    });
+    ws.on('close', () => {
+      if (me.ws !== ws) return;
+      me.ws = null;
+      if (me.room) {
+        me.room.disconnect(me.uid);
+        me.room.broadcastRoom(); me.room.broadcastGame();
+      }
+      me.expiry = setTimeout(() => { leaveRoom(me); forget(me); }, reconnectGrace);
+      me.expiry.unref();
+    });
+    ws.on('error', () => {});
+  });
+
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (!ws.alive) { ws.terminate(); continue; }
+      ws.alive = false; ws.ping();
+    }
+  }, heartbeatInterval);
+  heartbeat.unref();
+
+  async function close() {
+    clearInterval(heartbeat);
+    for (const p of players.values()) { clearTimeout(p.expiry); p.ws = null; }
+    for (const room of rooms.values()) room.abort();
+    rooms.clear(); players.clear(); sessions.clear();
+    for (const ws of wss.clients) ws.terminate();
+    await new Promise((resolve) => wss.close(resolve));
+    if (server.listening) await new Promise((resolve) => server.close(resolve));
+  }
+  return { server, wss, rooms, players, close };
 }
 
-/* full 已挪进 Room.publicState，这里只做启动 */
-
-server.listen(PORT, HOST, () => {
-  const nets = [];
-  try {
-    const os = require('os');
-    for (const list of Object.values(os.networkInterfaces())) {
-      for (const ni of list) if (ni.family === 'IPv4' && !ni.internal) nets.push(ni.address);
+if (require.main === module) {
+  const arg = (name, fallback) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
+  const port = Number(arg('port', '8788'));
+  const host = arg('host', '0.0.0.0');
+  const app = createMahjongServer();
+  app.server.listen(port, host, () => {
+    const actualPort = app.server.address().port;
+    console.log('贵州麻将联机服务器已启动');
+    console.log(`  本机:   ws://127.0.0.1:${actualPort}`);
+    console.log(`  网页:   http://127.0.0.1:${actualPort}/`);
+    for (const list of Object.values(require('os').networkInterfaces())) {
+      for (const ni of list) if (ni.family === 'IPv4' && !ni.internal) console.log(`  局域网: http://${ni.address}:${actualPort}/`);
     }
-  } catch (e) { /* ignore */ }
-  console.log('贵州麻将联机服务器已启动');
-  console.log(`  本机:   ws://127.0.0.1:${PORT}`);
-  for (const ip of nets) console.log(`  局域网: ws://${ip}:${PORT}`);
-  console.log(`  浏览器: http://<上面的地址>/  （同端口，打开即是游戏页面）`);
-});
+  });
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => app.close().then(() => process.exit(0)));
+}
+
+module.exports = { createMahjongServer };

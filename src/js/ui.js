@@ -7,6 +7,7 @@
   const GZ = window.GZGame;
   const $ = (s) => document.querySelector(s);
   const TN = R.tileName;
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const AVATAR = ['你', '下', '对', '上'];
 
   /* ---------------- 音效（WebAudio 合成，无外部文件） ---------------- */
@@ -113,7 +114,7 @@
   let autoOn = false;
 
   function applyAuto() {
-    if (game) game.setAuto(autoOn);
+    if (game && !game.isRemote) game.setAuto(autoOn);
     el.autoBtn.textContent = `自动摸打 ${autoOn ? '开' : '关'}`;
     el.autoBtn.classList.toggle('on', autoOn);
     try { localStorage.setItem('gz-auto', autoOn ? '1' : '0'); } catch (e) { /* ignore */ }
@@ -144,7 +145,8 @@
         ? '<span class="claim-marker latest-marker">最新</span>'
         : '';
     const wild = isWild(t) ? '<span class="wild-tag">财神</span>' : '';
-    return `<div class="tile${classes}" data-tile="${t}">${T.face(t)}${wild}${marker}</div>`;
+    const interactive = extra && extra.includes('playable') ? ` role="button" tabindex="0" aria-label="打出${TN(t)}"` : '';
+    return `<div class="tile${classes}" data-tile="${t}"${interactive}>${T.face(t)}${wild}${marker}</div>`;
   }
 
   function backHtml() { return `<div class="back">${T.back()}</div>`; }
@@ -161,14 +163,15 @@
       if (ting) badges.push(`<span class="badge ting">听 ${ting.tiles.length} 种</span>`);
     }
     return `<div class="avatar">${AVATAR[id]}</div>
-      <div class="meta"><span class="name">${p.name}</span>
+      <div class="meta"><span class="name">${esc(p.name)}</span>
       <span class="score${score < 0 ? ' neg' : ''}">${score > 0 ? '+' : ''}${score}</span></div>
+      ${id ? `<span class="mobile-hand-count">${p.handCount ?? p.hand.length} 张</span>` : ''}
       <div class="badges">${badges.join('')}</div>`;
   }
 
   function meldsHtml(p, seat) {
     return p.melds.map((m) => {
-      const tiles = m.tiles.map((t) => {
+      const tiles = (m.type === 'angang' && seat !== 0 ? new Array(4).fill(null) : m.tiles).map((t) => {
         if (m.type === 'angang' && seat !== 0) return `<div class="tile backface">${T.back()}</div>`;
         return faceHtml(t);
       }).join('');
@@ -199,6 +202,8 @@
   }
 
   function render() {
+    if (!game || game.players.length !== 4) return;
+    document.body.classList.toggle('is-remote', !!game.isRemote);
     renderSeats();
     renderRivers();
     renderHand();
@@ -267,7 +272,7 @@
         if (claim && i === claimIndex && t === claim.tile) classes.push('claim-target');
         return faceHtml(t, classes.join(' '));
       }).join('');
-      setHtml(node, html);
+      if (setHtml(node, html)) node.scrollTop = node.scrollHeight;
     });
   }
 
@@ -313,7 +318,7 @@
         }
       }
     } else if (a && a.kind === 'claim') {
-      const source = game.players[a.from] ? game.players[a.from].name : '对方';
+      const source = esc(game.players[a.from] ? game.players[a.from].name : '对方');
       html += a.rob
         ? `<div class="claim-notice">${source} 补杠 <b>${TN(a.tile)}</b> · 可以抢杠</div>`
         : `<div class="claim-notice">${source} 打出 <b>${TN(a.tile)}</b></div>`;
@@ -382,7 +387,7 @@
     const chongLeft = R.CHONG_POINTS.length - (game.chongCount || 0);
     const chong = isWild(tile) && chongLeft > 0
       ? `<div class="tip-chong">冲幺筒 · 向其他三家各收 ${R.CHONG_POINTS[game.chongCount]} 分</div>` : '';
-    const waits = R.tenpaiTiles(hand, me.melds);
+    const waits = R.tenpaiTiles(hand, me.melds, game.mode);
     if (!waits.length) {
       return { html: `${chong}<b>打 ${TN(tile)}</b> → 不听牌`, waits: [] };
     }
@@ -442,6 +447,7 @@
     const div = document.createElement('div');
     div.className = 'call';
     div.textContent = text;
+    div.dataset.seat = seat;
     div.style.cssText = CALL_POS[seat] || '';
     el.calls.appendChild(div);
     setTimeout(() => div.remove(), 1100);
@@ -464,8 +470,8 @@
     const blocks = winners.map((w) => {
       const info = w.info || { name: '胡牌', points: w.points };
       const fromName = w.selfDraw ? '自摸'
-        : res.robKong ? `抢杠（${game.players[w.from].name} 补杠）`
-          : `${game.players[w.from].name} 点炮`;
+        : res.robKong ? `抢杠（${esc(game.players[w.from].name)} 补杠）`
+          : `${esc(game.players[w.from].name)} 点炮`;
       const melds = w.melds.map((m) => `<div class="meld-inline">${m.tiles.map(tileMini).join('')}</div>`).join('');
       const handTiles = w.hand.map((t) => `<div class="tile${w.winTile === t ? ' win' : ''}${isWild(t) ? ' wild' : ''}">${T.face(t)}</div>`).join('');
       const softTag = w.hard === undefined || w.hard === null ? ''
@@ -473,7 +479,7 @@
       return `<div class="winner-block">
         <div class="result-head">
           <div>
-            <div class="result-pattern">${multi ? `<span class="winner-tag">${game.players[w.p].name}</span>` : ''}${info.name}${softTag}</div>
+            <div class="result-pattern">${multi ? `<span class="winner-tag">${esc(game.players[w.p].name)}</span>` : ''}${info.name}${softTag}</div>
             <div class="sub" style="margin:0">${fromName}</div>
           </div>
           <div class="result-points"><strong>${w.points}</strong><span>胡牌分${w.extra && w.extra.length ? '（' + w.extra.join('，') + '）' : ''}</span></div>
@@ -483,7 +489,7 @@
     }).join('');
 
     const banner = multi
-      ? `<div class="multi-banner">一炮 ${winners.length} 响 · ${game.players[winners[0].from].name} 一家赔 ${winners.length} 份</div>`
+      ? `<div class="multi-banner">一炮 ${winners.length} 响 · ${esc(game.players[winners[0].from].name)} 一家赔 ${winners.length} 份</div>`
       : '';
 
     /* 鸡（经典）/ 幺筒（幺筒麻将）说明区 */
@@ -492,12 +498,12 @@
     if (mode.chickens) {
       const chickenChips = res.chickens.map((c) =>
         `<span class="ji-chip">${tileMini(c.tile)}${c.kind} ${c.rate} 分/张</span>`).join('') +
-        (res.charge ? `<span class="ji-chip charge">${tileMini(res.charge.tile)}冲锋鸡 ×2（${game.players[res.charge.p].name}）</span>` : '');
+        (res.charge ? `<span class="ji-chip charge">${tileMini(res.charge.tile)}冲锋鸡 ×2（${esc(game.players[res.charge.p].name)}）</span>` : '');
       const flipText = res.flip != null
         ? `<div class="ji-flip">翻牌 ${tileMini(res.flip)} <span>${TN(res.flip)}</span> → 翻牌鸡 ${TN(R.nextTile(res.flip))}</div>`
         : '<div class="ji-flip">牌墙已空，未翻牌（只有幺鸡 / 乌骨鸡算鸡）</div>';
       const baojiText = (res.baoji && res.baoji.length)
-        ? `<p class="note">包鸡：${res.baoji.map((b) => `${game.players[b.p].name} 没叫牌，${b.points} 分赔给 ${game.players[b.to].name}`).join('；')}</p>`
+        ? `<p class="note">包鸡：${res.baoji.map((b) => `${esc(game.players[b.p].name)} 没叫牌，${b.points} 分赔给 ${esc(game.players[b.to].name)}`).join('；')}</p>`
         : '';
       collectHtml = `${flipText}
         <div class="ji-row" style="margin-top:8px">${chickenChips}</div>
@@ -506,7 +512,7 @@
     } else {
       collectHead = '幺筒（财神）';
       const chong = (res.chongLog || []).map((k) =>
-        `第 ${k.seq} 张 · ${game.players[k.p].name} 打出，向其他三家各收 ${k.points} 分`);
+        `第 ${k.seq} 张 · ${esc(game.players[k.p].name)} 打出，向其他三家各收 ${k.points} 分`);
       collectHtml = `<div class="ji-flip">幺筒 = ${tileMini(18)} <span>一筒</span> → 可替代任意牌；不能碰、不能杠</div>
         <div class="ji-row" style="margin-top:8px">
           <span class="ji-chip">${tileMini(18)}财神 · 替任意牌</span>
@@ -549,7 +555,7 @@
         : '';
 
       return `<tr class="${i === 0 ? 'me' : ''}">
-        <td class="name">${p.name}</td>
+        <td class="name">${esc(p.name)}</td>
         <td>${state}</td>
         ${collectCell}
         <td class="detail">${detail}</td>
@@ -563,7 +569,7 @@
       const kind = k.type === 'angang' ? '暗杠' : k.type === 'bugang' ? '补杠' : '明杠';
       return `${who} ${kind} ${TN(k.tile)}`;
     }).concat((res.penaltyLog || []).filter((k) => k.kind !== '冲幺筒').map((k) =>
-      `${game.players[k.p].name} 冲锋鸡被 ${game.players[k.to].name} 拿走，责任鸡赔 ${k.points} 分`
+      `${esc(game.players[k.p].name)} 冲锋鸡被 ${esc(game.players[k.to].name)} 拿走，责任鸡赔 ${k.points} 分`
     ));
     const kongRows = kongNotes.length
       ? `<h3>豆 / 责任鸡</h3><p class="note">${kongNotes.join('　·　')}</p>`
@@ -598,7 +604,7 @@
       const ting = res.ting[i];
       const d = res.deltas[i];
       return `<tr class="${i === 0 ? 'me' : ''}">
-        <td class="name">${p.name}</td>
+        <td class="name">${esc(p.name)}</td>
         <td>${ting.tiles.length ? '叫牌' : '未叫'}</td>
         <td>${ting.tiles.length ? ting.tiles.map((t) => TN(t)).join(' ') : '—'}</td>
         <td class="${d >= 0 ? 'pos' : 'neg'}">${d > 0 ? '+' : ''}${d}</td>
@@ -606,7 +612,7 @@
       </tr>`;
     }).join('');
     const chong = (res.chongLog || []).map((k) =>
-      `${game.players[k.p].name} 冲幺筒（第 ${k.seq} 张）赔 ${k.points} 分/家`);
+      `${esc(game.players[k.p].name)} 冲幺筒（第 ${k.seq} 张）赔 ${k.points} 分/家`);
     const note = mode.chickens
       ? '本局不翻牌，鸡与豆不另算，按查叫结算。'
       : `本模式不捉鸡，按查叫结算。${chong.length ? '冲幺筒：' + chong.join('；') : ''}`;
@@ -635,7 +641,23 @@
   function showResult(res) {
     el.overlay.classList.remove('hidden');
     el.overlay.innerHTML = resultHtml(res);
+    refreshRoundActions();
     el.overlay._sig = null;
+  }
+
+  function refreshRoundActions() {
+    if (!game) return;
+    if (game.isRemote) {
+      const next = el.overlay.querySelector('[data-act="next"]');
+      const room = window.GZOnline.room;
+      if (next && room) {
+        const finished = game.roundNo >= room.totalRounds;
+        next.disabled = finished || !room.host;
+        next.textContent = finished ? '本桌已结束' : room.host ? '开始下一局' : '等待房主开局';
+      }
+      const back = el.overlay.querySelector('[data-act="lobby"]');
+      if (back) back.textContent = '返回房间';
+    }
   }
 
   /** 新一局开始（联机：房主开了下一局）→ 收起上一局结算 */
@@ -760,7 +782,7 @@
 
   function bind() {
     document.addEventListener('click', (e) => {
-      const tile = e.target.closest('.hand-main .tile');
+      const tile = e.target.closest('.hand-main .tile.playable');
       if (tile && game) {
         const a = game.awaiting;
         if (a && a.kind === 'discard' && a.player === 0) {
@@ -807,6 +829,10 @@
     });
 
     document.addEventListener('keydown', (e) => {
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+      if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.tile.playable')) {
+        e.preventDefault(); e.target.click(); return;
+      }
       if (e.key === 'Escape') {
         if (game && game.awaiting && game.awaiting.kind === 'claim') game.humanRespond('pass');
         else el.overlay.classList.add('hidden');
@@ -818,6 +844,7 @@
 
     /* 鼠标停在手牌上：显示打出去之后听什么、还剩几张 */
     el.stage.addEventListener('mousemove', (e) => {
+      if (window.matchMedia('(pointer: coarse)').matches) return;
       const node = e.target && e.target.closest ? e.target.closest('.hand-main .tile') : null;
       const a = game && game.awaiting;
       if (!node || !a || a.kind !== 'discard' || a.player !== 0 || a.auto) {
@@ -844,7 +871,7 @@
     $('#btn-rules').addEventListener('click', () => showRules(game ? game.mode.id : 'classic'));
     el.lobbyBtn.addEventListener('click', showLobby);
     $('#btn-reset-scores').addEventListener('click', () => {
-      if (!game) return;
+      if (!game || game.isRemote) return;
       const ok = window.confirm(`确定清空「${game.mode.name}」牌桌上四家的累计分数吗？（生涯战绩在大厅里清空）`);
       if (!ok) return;
       game.scores = [0, 0, 0, 0];
@@ -857,11 +884,19 @@
       toast('四家累计分数已清零');
     });
     $('#btn-new').addEventListener('click', () => {
-      if (!game) return;
+      if (!game || game.isRemote) return;
       el.overlay.classList.add('hidden');
       game.startRound();
       toast('重新发牌');
     });
+    $('#btn-fullscreen').addEventListener('click', () => {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      else if (document.body.classList.contains('mobile-table')) window.GZViewport.enter(true);
+      else document.documentElement.requestFullscreen?.().catch(() => {});
+    });
+    document.addEventListener('pointerdown', () => {
+      if (document.body.classList.contains('in-game')) window.GZViewport.enter();
+    }, { passive: true });
 
     const d = window.desktop;
     if (d) {
@@ -876,19 +911,15 @@
   /* ---------------- 缩放 ---------------- */
 
   function fit() {
-    const inOnline = el.online && !el.online.classList.contains('hidden');
-    const inLobby = el.lobby && !el.lobby.classList.contains('hidden') && !inOnline;
-    const box = inOnline ? el.online : inLobby ? el.lobby : el.wrap;
+    const view = window.GZViewport.layout();
+    if (view.mobile) { el.stage.style.transform = ''; return; }
+    const box = el.wrap;
+    if (!box.clientWidth || !box.clientHeight) return;
     const k = Math.min(
       (box.clientWidth - 4) / 1200,
       (box.clientHeight - 4) / 740
     );
     el.stage.style.transform = `scale(${k})`;
-    // 大厅 / 联机是同一块 1200×740 的画布，跟着一起缩放
-    const lw = inOnline
-      ? el.online.querySelector('.ol-wrap')
-      : el.lobby && el.lobby.querySelector('.lb-wrap');
-    if (lw) lw.style.transform = `scale(${k})`;
   }
 
   /* ---------------- 启动 / 大厅 ↔ 牌桌 ↔ 联机 ---------------- */
@@ -898,6 +929,9 @@
     document.body.classList.toggle('in-lobby', name === 'lobby');
     document.body.classList.toggle('in-online', name === 'online');
     document.body.classList.toggle('in-game', name === 'game');
+    if (name === 'game') window.GZViewport.enter();
+    else window.GZViewport.leave();
+    fit();
   }
 
   function showLobby() {
@@ -908,7 +942,7 @@
     GZOnline.hide();
     GZLobby.show();
     setView('lobby');
-    if (el.brandSub) el.brandSub.textContent = '游戏大厅 · 单机版';
+    if (el.brandSub) el.brandSub.textContent = '贵州麻将 · 游戏大厅';
   }
 
   /** 联机面板 ↔ 大厅 */
@@ -932,15 +966,20 @@
 
   /** 房主点了「开始对局」：切到牌桌，用 RemoteGame 接住服务端快照 */
   function enterOnlineGame() {
+    if (game && !game.isRemote) game.phase = 'ended';
     if (!game || !game.isRemote) {
       game = new GZRemoteGame.RemoteGame();
       window.__game = game;
+      const remote = game;
       game.on('state', () => { if (game === window.__game) render(); });
       game.on('roundEnd', (res) => {
+        if (game !== remote) return;
+        const round = remote.roundNo;
         try {
           if (!res.draw) Sound.hu();
           recordRound(res);
           setTimeout(() => {
+            if (game !== remote || remote.phase !== 'ended' || remote.roundNo !== round) return;
             try { showResult(res); } catch (err) { console.error('[remote] showResult', err); toast('结算渲染异常'); }
           }, 650);
         } catch (err) { console.error('[remote] roundEnd', err); }
@@ -956,33 +995,16 @@
     toast('已进入牌桌，等服务端发牌', 2000);
   }
 
-  function wireRemoteGame() {
-    const g = game;
-    const Net = window.GZNet;
-    Net.on('msg', onNetMsg);
-    Net.on('status', (st) => {
-      if (st === 'lost' && game === g) {
-        toast('与服务器断开，本桌结束', 3000);
-        showLobby();
-      }
-    });
-  }
-
   /** 服务端快照与特效 */
   function onNetMsg(msg) {
     if (msg.t === 'snapshot') {
       if (!game || !game.isRemote) return;
+      if (!GZOnline.started || msg.snap.roomId !== GZOnline.room?.id) return;
       game.applySnapshot(msg.snap);
       playFx(msg.fx || []);
       return;
-    }    if (msg.t === 'room') {
-      // 开局后房号页同步（比如下一局被房主开了）
-      const r = msg.room;
-      if (game && game.isRemote && r.running && GZOnline.started) {
-        GZOnline.resetStarted();
-        toast(`房主开了第 ${r.roundNo} 局`, 2200);
-      }
     }
+    if (msg.t === 'room') refreshRoundActions();
   }
 
   /** 回放这轮快照里的动效 */
@@ -1015,7 +1037,9 @@
   function enterMode(modeId) {
     const id = R.MODES[modeId] ? modeId : 'classic';
     GZLobby.hide();
-    if (game && game.mode.id === id) {
+    GZOnline.hide();
+    setView('game');
+    if (game && !game.isRemote && game.mode.id === id) {
       // 同一玩法再进来：接着上桌，不重发牌
       if (el.brandSub) el.brandSub.textContent = `${game.mode.name} · 单机版`;
       render();
@@ -1099,6 +1123,7 @@
     const mine = wins.find((w) => w.p === 0) || null;
     P.record({
       mode: game.mode.id,
+      onlineRoundId: game.isRemote ? game.state?.roundId : undefined,
       delta: res.deltas[0],
       win: !!mine,
       selfDraw: !!(mine && mine.selfDraw),
@@ -1113,6 +1138,8 @@
     buildSeats();
     fit();
     window.addEventListener('resize', fit);
+    window.visualViewport?.addEventListener('resize', fit);
+    document.addEventListener('fullscreenchange', fit);
 
     try {
       const saved = parseInt(localStorage.getItem('gz-speed'), 10);
@@ -1128,24 +1155,22 @@
     // 联机消息只在启动时挂一次；onNetMsg 自己判断当前牌桌
     window.GZNet.on('msg', onNetMsg);
     window.GZNet.on('status', (st) => {
-      if (st === 'lost') {
-        toast('与服务器断开连接', 3000);
-        if (game && game.isRemote) {
-          game = null;          // 这桌已经没了
-          window.__game = null;
-        }
-        GZOnline.hide();
-        showLobby();
-      }
+      const banner = $('#net-status');
+      const disconnected = ['lost', 'connecting', 'reconnecting', 'error'].includes(st);
+      banner.classList.toggle('hidden', !disconnected);
+      document.body.classList.toggle('net-offline', disconnected);
+      banner.textContent = game && game.isRemote ? '连接中断，正在重连 · 座位保留 60 秒，电脑临时代打' : '正在连接服务器…';
+      fit();
     });
 
     blockedShown = false;
     bind();
-    showLobby();
+    if (['http:', 'https:'].includes(location.protocol)) showOnline();
+    else showLobby();
   }
 
   function saveScore() {
-    if (!game) return;
+    if (!game || game.isRemote) return;
     window.GZProfile.saveTable(game.mode.id, {
       scores: game.scores, round: game.roundNo, dealer: game.dealer
     });

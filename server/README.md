@@ -46,10 +46,10 @@ WebSocket 走同端口的 Upgrade。朋友不装任何东西，浏览器就能�
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `index.js` | ~210 | 入口：HTTP 静态服务 + WS Upgrade；连接分配 uid；房间表与消息路由（上行校验、房主权限、错误回执） |
-| `room.js` | ~220 | `Room` 类：4 个座位（真人/机器人）、玩法与局数配置、开局编排（沿用上局分数与庄家）、`snapshot` 广播、特效（fx）队列、掉线转电脑代打、房主转移、人去房空即解散 |
-| `online-game.js` | ~255 | `OnlineGame extends Game`：把单机里「等 seat 0 输入」改写成**按座位的远程提示**（`prompts` Map）；多人碰/杠/胡/抢杠互不阻塞；超时兜底；`remoteAction(seat, action)` 是唯一的操作入口 |
-| `serialize.js` | ~175 | 快照层：把整桌**按观战者旋转**（你永远是 0 号位），只下发该玩家可见的信息；结算面板数据（鸡/包鸡/冲幺筒/豆流水）一并轮转 |
+| `index.js` | — | HTTP + WS 入口；会话恢复、心跳、房间表、消息校验。导出 `createMahjongServer()` 供测试使用，直接运行时监听端口。 |
+| `room.js` | — | 座位、配置、局数限制、掉线保留与房主转移、快照广播和 fx 队列。 |
+| `online-game.js` | — | 按座位等待输入、多人抢牌、超时/掉线代打、操作与提示身份校验。 |
+| `serialize.js` | — | 隐藏其他玩家手牌和暗杠，按接收者视角旋转牌桌、结算和座位引用。 |
 
 ## 协议
 
@@ -61,6 +61,7 @@ WebSocket 走同端口的 Upgrade。朋友不装任何东西，浏览器就能�
 | t | 载荷 | 说明 |
 | --- | --- | --- |
 | `hello` | `{name}` | 报昵称（≤10 字），进房前随时可改 |
+| `resume` | `{token}` | 使用 `welcome.resumeToken` 恢复原会话；掉线后保留 60 秒。凭据仅保存在同一标签页的 sessionStorage，按服务器地址隔离。 |
 | `create` | `{config:{mode, totalRounds}}` | 建房，创建者即房主、坐 0 号位；`mode` 取 `rules.js` 的 `MODES` 键（`classic` / `yitong`） |
 | `join` | `{room:"4321"}` | 用房号进房，坐第一个空位 |
 | `addbot` | — | 房主：往空位补一个机器人（名字取自内部池，不与在场重复） |
@@ -71,6 +72,7 @@ WebSocket 走同端口的 Upgrade。朋友不装任何东西，浏览器就能�
 | `action` | `{action:{...}}` | 对局内操作，见下表 |
 | `leave` | — | 主动退房 |
 | `ping` | — | 心跳（客户端每 25s 发一次），回 `pong` |
+| `sync` | — | 补发当前房间与本人对局快照，不消费待广播的 fx。 |
 
 `action.type` 取值（服务端会做完整校验，非法操作一律拒绝）：
 
@@ -87,7 +89,9 @@ WebSocket 走同端口的 Upgrade。朋友不装任何东西，浏览器就能�
 
 | t | 载荷 | 说明 |
 | --- | --- | --- |
-| `welcome` | `{uid, online}` | 连接建立，分配 uid |
+| `welcome` | `{uid, online,resumeToken}` | 新连接的临时会话；有旧凭据时先 `resume`，恢复完成后再进行房间操作。 |
+| `resumed` | `{uid,resumeToken}` | 已恢复旧会话；有房间时接着发送 `joined`、房间和快照。旧连接被替换并关闭。 |
+| `resume-failed` | `{uid,resumeToken}` | 旧会话已失效，使用这条消息给出的新会话。 |
 | `hello-ok` | `{name}` | 昵称已生效 |
 | `joined` | `{room}` | 进房确认（载荷同 `room`） |
 | `room` | `{room}` | 房间状态：房号、座位表（名字/机器人/房主/你是否该座）、配置、是否满员/对局中、累计分 |
@@ -100,6 +104,7 @@ WebSocket 走同端口的 Upgrade。朋友不装任何东西，浏览器就能�
 
 ```
 snap = {
+  roomId, roundId,                    // 唯一 roundId 用于结算及本地战绩去重
   phase, mode, roundNo, totalRounds, dealer, turn, wallLeft,
   scores[4], roundDeltas[4],          // 已按视角轮转：scores[0] 永远是你
   lastDiscard, discardSeq, discardHot, chongCount, firstChicken,
@@ -117,7 +122,7 @@ snap = {
 `awaiting`（要你操作了）：
 
 ```
-{ kind:'discard', self:{hu, angang[], bugang[]} }      // 出牌/自摸/暗杠/补杠/报听
+{ id, kind:'discard', self:{hu, angang[], bugang[]} }  // 操作携带 promptId=id，防止旧提示操作落入新回合
 { kind:'claim', options:['hu','peng','gang'], tile, from, info, rob }  // 抢牌（rob=true 是抢杠）
 { kind:'discard', auto:true, autoTile, ting }          // 报听锁牌后的自动摸打（仅展示）
 ```
@@ -148,7 +153,9 @@ create ──► 等人(join) ──► addbot 凑满 ──► start ──► 
 - **每局之间**：`Room.start()` 会沿用上一局的四家累计分与庄家（`nextDealer`），
   `roundNo` 加一；打到 `config.totalRounds` 后 `next` 会被拒绝。
 - **换玩法**：`config` 只能在对局间隙改；改完下一次 `start` 生效。
-- **机器人**：只在开局前可增删；名字来自 `BOT_NAMES` 池（阿贵、小幺、老陈、顺子……）。
+- **机器人**：开局前或局间可增删；对局进行中禁止新人加入、增删机器人。主动退出的座位由机器人接替，临时掉线的座位则保留给原玩家。
+- **局数限制**：`start` 与 `next` 都检查总局数；不能通过重复 `start` 越过约定局数。
+- **进房原子性**：加入不存在、满员或进行中的目标房间失败时，保留原房间；重复加入当前房间只补发状态。
 
 ## 超时与掉线
 
@@ -156,7 +163,9 @@ create ──► 等人(join) ──► addbot 凑满 ──► start ──► 
 | --- | --- |
 | 等你出牌 60s 没响应 | 服务端记一条旁白「超时，自动出牌」，按自动摸打策略（能胡就胡，否则打一张保持听牌的牌）替你出 |
 | 抢牌提示 20s 没响应 | 视为「过」，不影响别人 |
-| 对局中掉线（ws close） | 该座位 `isHuman=false` 转电脑 AI 代打，名字加「(代打)」，未决提示立即清算；真人不会整桌干等 |
+| 对局中掉线（ws close） | 保留身份和座位 60 秒，`isHuman=false` 临时代打，未决提示立即清算；报听锁牌继续生效 |
+| 在宽限期内 `resume` | 同一座位恢复真人控制并补发完整可见状态；未执行的电脑出牌交回真人 |
+| 超过宽限期未恢复 | 座位转机器人，清理会话；无真人时终止对局并解散 |
 | 房主掉线 | 房主转移给第一个真人类座位 |
 | 全部真人离开 | 房间 `abort()` 并从房间表删除，机器人和对局一并销毁 |
 
@@ -200,11 +209,15 @@ npm run e2e:ui      # UI 级端到端：Electron 真窗口点完一局（含结�
 `test/online.test.cjs` 直接实例化 `Room` / `OnlineGame`（用假 ws 桩），不经网络，
 适合在改动对局逻辑后快速回归；`scripts/e2e*.cjs` 走真实 WebSocket，验证整条链路。
 
+新增 `test/server.test.cjs`（11 项）覆盖真实连接、会话恢复、房间原子性、心跳、HTTP 错误处理和边界操作；
+`test/web.test.cjs`（6 项）覆盖横屏计算、全屏失败兜底、结算去重、网络连接隔离与网页脚本消息集成。
+`npm run e2e` 在随机空闲端口创建真实 HTTP/WS 服务，两种玩法同时开桌，各打两局，中途恢复掉线座位。
+网页脚本测试使用 DOM 桩，不能替代手机真机的视觉与触摸验收。
+
 ## 边界与注意事项
 
-- **内存态**：房间、对局、累计分都在内存里，进程重启即清空；没有持久化与断线重连
-  （重连会被当成新玩家，原座位由机器人代打）。
+- **内存态**：房间、会话、累计分都在内存里，进程重启即清空；支持进程存活期间的临时掉线恢复，不支持重启恢复。
 - **单进程**：一个进程跑所有房间（Node 单线程）；几十桌没有问题，但没有多核扩展。
 - **无鉴权**：按局域网/熟人局设计；要上公网请自己加 wss（反向代理即可）与访问控制。
-- **心跳只保活**：服务端回 `pong` 但不主动踢空闲连接，掉线检测依赖 TCP 断开。
+- **心跳检测**：每 30 秒发送 WS ping；下一轮仍未收到 WS pong 时终止连接并进入 60 秒恢复宽限期。上行单消息限制 16 KiB。
 - **昵称**：最长 10 字，仅用于展示，不唯一。

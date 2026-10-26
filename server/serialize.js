@@ -16,7 +16,7 @@ const optSeat = (seat, forSeat) =>
 function meldView(meld, mine, forSeat) {
   return {
     type: meld.type,
-    tile: meld.tile,
+    tile: mine || meld.type !== 'angang' ? meld.tile : null,
     from: optSeat(meld.from, forSeat),
     // 暗杠只发给杠家本人，别人只看到 4 张背面
     tiles: mine || meld.type !== 'angang' ? meld.tiles.slice() : []
@@ -69,7 +69,7 @@ function publicResult(game, forSeat) {
     selfDraw: !!w.selfDraw,
     from: optSeat(w.from, forSeat),
     hand: w.hand.slice(),
-    melds: w.melds.map((m) => ({ type: m.type, tile: m.tile, from: m.from, tiles: m.tiles.slice() })),
+    melds: w.melds.map((m) => ({ type: m.type, tile: m.tile, from: optSeat(m.from, forSeat), tiles: m.tiles.slice() })),
     info: w.info,
     points: w.points,
     extra: (w.extra || []).slice(),
@@ -125,6 +125,7 @@ function snapshot(game, forSeat) {
   let awaiting = null;
   if (prompt) {
     awaiting = {
+      id: prompt.id,
       kind: prompt.kind,
       player: 0,
       self: prompt.self || null,
@@ -148,6 +149,7 @@ function snapshot(game, forSeat) {
     phase: game.phase,
     mode: game.mode.id,
     roundNo: game.roundNo,
+    roundId: game.roundId,
     dealer: rotateSeat(game.dealer, forSeat),
     turn: rotateSeat(game.turn, forSeat),
     wallLeft: game.wall.length,

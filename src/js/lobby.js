@@ -6,6 +6,7 @@
   const T = root.GZTiles;
   const P = root.GZProfile;
   const $ = (s) => document.querySelector(s);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   let node = null;
   let hooks = { onEnter: null, onRules: null };
@@ -33,8 +34,8 @@
     const rank = sum.rank;
     const id = 'pf-name-input';
     const nameHtml = renaming
-      ? `<input id="${id}" class="pf-name-input" value="${p.name}" maxlength="10" spellcheck="false" />`
-      : `<span class="pf-name-txt">${p.name}</span><button class="pf-mini" data-act="rename">改名</button>`;
+      ? `<input id="${id}" class="pf-name-input" value="${esc(p.name)}" maxlength="10" spellcheck="false" />`
+      : `<span class="pf-name-txt">${esc(p.name)}</span><button class="pf-mini" data-act="rename">改名</button>`;
 
     const modeRows = R.MODE_ORDER.map((mid) => {
       const s = P.mode(mid);
@@ -192,7 +193,7 @@
         <li>服务端跑规则，各家只看自己的牌</li>
       </ul>
       <div class="mc-foot">
-        <div class="mc-stat"><span>服务端</span><b>npm run server</b></div>
+        <div class="mc-stat"><span>网页联机</span><b>分享房号，一起开桌</b></div>
         <button class="mc-play" data-act="online">去联机</button>
       </div>
     </article>`;
@@ -235,8 +236,8 @@
       <section class="lb-main">
         <div class="lb-head">
           <div>
-            <h2>选择玩法</h2>
-            <p>四种牌搭子、幺筒当财神，各是各的账；换玩法不丢分。</p>
+            <h2>贵州麻将</h2>
+            <p>与朋友同桌，或选择玩法练习。</p>
           </div>
           <div class="lb-quick">
             <span>本机存档</span>
@@ -244,8 +245,8 @@
           </div>
         </div>
         <div class="mode-cards">
-          ${R.MODE_ORDER.map(cardHtml).join('')}
           ${onlineCardHtml()}
+          ${R.MODE_ORDER.map(cardHtml).join('')}
         </div>
         <div class="lb-hist">
           <div class="hist-head"><h3>最近对局</h3><span>最多显示 8 条</span></div>

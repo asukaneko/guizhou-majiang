@@ -7,6 +7,7 @@
 'use strict';
 
 const path = require('path');
+const { randomUUID } = require('crypto');
 const GZ = require(path.join(__dirname, '..', 'src', 'js', 'game.js'));
 const R = require(path.join(__dirname, '..', 'src', 'js', 'rules.js'));
 const AI = require(path.join(__dirname, '..', 'src', 'js', 'ai.js'));
@@ -16,6 +17,7 @@ const { Game } = GZ;
 class OnlineGame extends Game {
   constructor(opts) {
     super(opts);
+    this.roundId = randomUUID();
     this.totalRounds = opts.totalRounds || 0;
     this.prompts = new Map();          // seat -> prompt
     this.discardTimeout = opts.discardTimeout || 60000;
@@ -41,16 +43,13 @@ class OnlineGame extends Game {
 
   waitRemoteDiscard(p, self) {
     const pl = this.players[p];
-    const prompt = { kind: 'discard', p, self, resolve: null, timer: null };
+    const prompt = { id: randomUUID(), kind: 'discard', p, self, resolve: null, timer: null };
     this.prompts.set(p, prompt);
     const promise = new Promise((resolve) => { prompt.resolve = resolve; });
     prompt.timer = setTimeout(() => {
       if (this.prompts.get(p) !== prompt) return;
       this.note(`${pl.name} 超时，自动出牌`);
-      const auto = this.autoDecision(p, self);
-      const tile = auto && auto.type === 'discard' ? auto.tile
-        : pl.hand.length ? pl.hand[(Math.random() * pl.hand.length) | 0] : null;
-      this.finishPrompt(p, tile == null ? { type: 'hu' } : { type: 'discard', tile });
+      this.finishPrompt(p, this.fallbackDecision(p, self));
     }, this.discardTimeout);
     this.emitState();   // 先广播；监听器若立刻回应，resolve 已就位
     return promise;
@@ -61,7 +60,7 @@ class OnlineGame extends Game {
     const pl = this.players[p];
     if (!pl || !pl.isHuman) return Promise.resolve(null);
     const prompt = {
-      kind: 'claim', p, tile, from,
+      id: randomUUID(), kind: 'claim', p, tile, from,
       options: claim.acts.slice(),
       info: claim.info || null,
       rob: !!claim.rob,
@@ -96,7 +95,7 @@ class OnlineGame extends Game {
       const pl = this.players[p];
       const c = R.counts(pl.hand);
       const acts = [];
-      const info = R.winInfo(pl.hand.concat(tile), pl.melds);
+      const info = R.winInfo(pl.hand.concat(tile), pl.melds, this.mode);
       if (info && R.canChiPao(info)) acts.push('hu');
       if (info && !R.canChiPao(info) && pl.isHuman) this.emit('blocked', { info, tile });
       // 报听的人不能再碰 / 杠；幺筒是财神，谁也不能碰 / 杠
@@ -124,6 +123,7 @@ class OnlineGame extends Game {
       }
     }
     await Promise.all(asks);
+    if (this.phase !== 'playing') return null;
     if (!picks.length) return null;
 
     // 一炮多响：所有能胡的都胡，点炮者各赔一份
@@ -144,7 +144,7 @@ class OnlineGame extends Game {
     for (let k = 1; k < 4; k++) {
       const p = (kongger + k) % 4;
       const pl = this.players[p];
-      const info = R.winInfo(pl.hand.concat(tile), pl.melds);
+      const info = R.winInfo(pl.hand.concat(tile), pl.melds, this.mode);
       if (info) claims.push({ p, k, info });
     }
     if (!claims.length) return [];
@@ -162,9 +162,11 @@ class OnlineGame extends Game {
       }
     }
     await Promise.all(asks);
+    if (this.phase !== 'playing') return [];
     if (!robbers.length) return [];
     await this.delay(260);
-    return robbers;
+    // 按座次定庄，不能由网络响应先后来决定。
+    return robbers.sort((a, b) => (a.p - kongger + 4) % 4 - (b.p - kongger + 4) % 4);
   }
 
   /* ---------------- 远程操作入口 ---------------- */
@@ -174,8 +176,11 @@ class OnlineGame extends Game {
    * @param {object} action {type:'discard'|'hu'|'gang'|'ting'|'claim'|'pass', ...}
    */
   remoteAction(p, action) {
+    if (this.phase !== 'playing') return { ok: false, err: '对局已经结束' };
+    if (!action || typeof action !== 'object' || Array.isArray(action)) return { ok: false, err: '操作格式不正确' };
     const prompt = this.prompts.get(p);
     if (!prompt) return { ok: false, err: '现在没有等你操作' };
+    if (action.promptId !== undefined && action.promptId !== prompt.id) return { ok: false, err: '操作已过期，请按当前提示操作' };
     const pl = this.players[p];
 
     if (prompt.kind === 'discard') {
@@ -194,6 +199,8 @@ class OnlineGame extends Game {
         return { ok: true };
       }
       if (action.type === 'gang') {
+        if (!['angang', 'bugang'].includes(action.gangType)) return { ok: false, err: '未知杠类型' };
+        if (pl.tingDeclared) return { ok: false, err: '报听后不能杠' };
         if (action.gangType === 'angang' && !(self.angang || []).includes(action.tile)) {
           return { ok: false, err: '不能暗杠这张' };
         }
@@ -232,23 +239,26 @@ class OnlineGame extends Game {
   }
 
   /** 强制清掉某座位未决的提示（玩家掉线时兜底） */
+  fallbackDecision(p, self) {
+    const auto = this.autoDecision(p, self);
+    if (auto) return auto;
+    const pl = this.players[p];
+    const tile = pl.hand.includes(pl.justDrawn) ? pl.justDrawn : pl.hand[pl.hand.length - 1];
+    return tile == null ? { type: 'none' } : { type: 'discard', tile };
+  }
+
   dropPrompt(p) {
     const prompt = this.prompts.get(p);
     if (!prompt) return false;
     if (prompt.kind === 'claim') this.finishPrompt(p, null);
-    else {
-      const pl = this.players[p];
-      const auto = this.autoDecision(p, prompt.self);
-      const tile = auto && auto.type === 'discard' ? auto.tile
-        : pl.hand.length ? pl.hand[(Math.random() * pl.hand.length) | 0] : null;
-      this.finishPrompt(p, tile == null ? { type: 'hu' } : { type: 'discard', tile });
-    }
+    else this.finishPrompt(p, this.fallbackDecision(p, prompt.self));
     return true;
   }
 
   abort() {
     this.phase = 'ended';
-    for (const p of [...this.prompts.keys()]) this.dropPrompt(p);
+    this.awaiting = null;
+    for (const p of [...this.prompts.keys()]) this.finishPrompt(p, { type: 'none' });
   }
 }
 

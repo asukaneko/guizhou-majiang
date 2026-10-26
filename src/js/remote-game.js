@@ -26,6 +26,7 @@
       this.autoPlay = false;
       this.totalRounds = 0;
       this.roundIndex = 0;   // 已打完的局数
+      this.resultKey = null;
     }
 
     on(ev, fn) {
@@ -40,7 +41,6 @@
     }
 
     applySnapshot(snap) {
-      const hadResult = !!this.result;
       this.state = snap;
       this.mode = R.MODES[snap.mode] || R.MODES.classic;
       this.phase = snap.phase;
@@ -53,13 +53,21 @@
       this.players = snap.players;
       this.awaiting = snap.awaiting;
       this.lastDiscard = snap.lastDiscard;
+      this.discardSeq = snap.discardSeq;
+      this.discardHot = snap.discardHot;
+      this.chongCount = snap.chongCount;
+      this.firstChicken = snap.firstChicken;
       this.totalRounds = snap.totalRounds || this.totalRounds;
       const newResult = snap.result;
-      const changedResult = !!newResult && newResult !== this.result;
+      const resultKey = snap.roundId || `${snap.roomId || ''}:${snap.roundNo}`;
+      const changedResult = !!newResult && this.resultKey !== resultKey;
       this.result = newResult;
       this.emit('state', this);
       // 一局结束：result 从无到有（或换局后更新）即触发一次
-      if (changedResult || (newResult && !hadResult)) this.emit('roundEnd', newResult);
+      if (changedResult) {
+        this.resultKey = resultKey;
+        this.emit('roundEnd', newResult);
+      }
     }
 
     /* ---------------- UI 依赖的只读接口 ---------------- */
@@ -102,37 +110,32 @@
     /* ---------------- 操作 → 发消息 ---------------- */
 
     send(action) {
-      return root.GZNet.send({ t: 'action', action });
+      return root.GZNet.send({ t: 'action', action: { ...action, promptId: this.awaiting && this.awaiting.id } });
     }
 
     humanDiscard(tile) {
       if (!this.awaiting || this.awaiting.player !== 0) return false;
-      this.send({ type: 'discard', tile });
-      return true;
+      return this.send({ type: 'discard', tile });
     }
 
     humanGang(type, tile) {
       if (!this.awaiting || this.awaiting.player !== 0) return false;
-      this.send({ type: 'gang', gangType: type, tile });
-      return true;
+      return this.send({ type: 'gang', gangType: type, tile });
     }
 
     humanHu() {
       if (!this.awaiting || this.awaiting.player !== 0) return false;
-      this.send({ type: 'hu' });
-      return true;
+      return this.send({ type: 'hu' });
     }
 
     humanTing() {
       if (!this.awaiting || this.awaiting.player !== 0) return false;
-      this.send({ type: 'ting' });
-      return true;
+      return this.send({ type: 'ting' });
     }
 
     humanRespond(act) {
       if (!this.awaiting || this.awaiting.kind !== 'claim') return false;
-      this.send(act === 'pass' ? { type: 'pass' } : { type: 'claim', act });
-      return true;
+      return this.send(act === 'pass' ? { type: 'pass' } : { type: 'claim', act });
     }
   }
 
