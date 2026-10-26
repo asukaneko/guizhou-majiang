@@ -133,6 +133,36 @@ async function capture() {
       })(); true;
     `);
     await sleep(700);
+  } else if (shotMode === 'auto') {
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        g.speed = 0.00001;
+        g.askDiscard = function(){ return new Promise(function(){}); };
+      })(); true;
+    `);
+    await sleep(700);
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        g.setAuto(true);
+        const btn = document.querySelector('#btn-auto');
+        btn.classList.add('on');
+        btn.textContent = '自动摸打 开';
+        g.phase = 'playing';
+        g.turn = 0;
+        g.scores = [0, 0, 0, 0];
+        g.roundDeltas = [0, 0, 0, 0];
+        g.players.forEach(function (q) { q.discards = []; q.melds = []; q.said = ''; });
+        g.lastDiscard = null;
+        g.players[0].hand = [0,1,2,3,4,5,6,7,8,12,13,18,18,20];
+        g.players[0].discards = [22, 24];
+        g.players[0].justDrawn = 20;
+        g.awaiting = { kind: 'discard', player: 0, auto: true, autoTile: 20, self: { hu: null, angang: [], bugang: [] } };
+        g.emitState();
+      })(); true;
+    `);
+    await sleep(700);
   } else if (shotMode === 'tip') {
     await w.webContents.executeJavaScript(`
       (function(){

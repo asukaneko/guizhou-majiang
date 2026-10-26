@@ -41,6 +41,7 @@
       }));
       this.phase = 'idle';
       this.awaiting = null;
+      this.autoPlay = !!opts.autoPlay;
       this.kongLog = [];
       this.roundDeltas = [0, 0, 0, 0];
       this.wall = [];
@@ -215,12 +216,84 @@
           return { type: 'discard', tile };
         });
       }
+
+      // 自动摸打：听牌后由程序替你摸打，停一下让人看清打了哪张
+      const auto = this.autoPlay ? this.autoDecision(p, self) : null;
+      if (!auto) return this.waitHumanDiscard(p, self);
+      const awaiting = {
+        kind: 'discard', player: p, self, auto: true,
+        autoTile: auto.type === 'hu' ? null : auto.tile
+      };
+      this.awaiting = awaiting;
+      this.emitState();
+      return this.delay(380).then(() => {
+        if (this.phase !== 'playing') return { type: 'none' };
+        if (!this.autoPlay) return this.waitHumanDiscard(p, self); // 中途关掉 → 交回手动
+        if (this.awaiting === awaiting) this.awaiting = null;
+        this.emitState();
+        return auto;
+      });
+    }
+
+    waitHumanDiscard(p, self) {
       this.awaiting = { kind: 'discard', player: p, self };
       this.emitState();
       return new Promise((resolve) => {
         this.awaiting.resolve = resolve;
         this.emit('prompt', this.awaiting);
       });
+    }
+
+    /**
+     * 自动摸打的选择：听牌后打一张仍保持听牌的牌（优先打刚摸的、听口剩张多的），
+     * 能自摸就直接胡。没听牌返回 null，交回玩家手动出牌。
+     */
+    autoDecision(p, self) {
+      const pl = this.players[p];
+      if (pl.hand.length !== 14 - pl.melds.length * 3) return null;
+      if (self && self.hu) return { type: 'hu' };
+      const seen = this.seenCounts(p);
+      const tried = new Set();
+      let best = null;
+      for (const tile of pl.hand) {
+        if (tried.has(tile)) continue;
+        tried.add(tile);
+        const waits = R.tenpaiTiles(removeTiles(pl.hand, tile, 1), pl.melds);
+        if (!waits.length) continue;
+        const left = waits.reduce((sum, w) => sum + Math.max(0, 4 - seen[w]), 0);
+        // 先比听口剩张，再优先打刚摸到的那张（不破坏原来的听牌）
+        const score = left * 2 + (tile === pl.justDrawn ? 1 : 0);
+        if (!best || score > best.score) best = { score, tile };
+      }
+      return best ? { type: 'discard', tile: best.tile } : null;
+    }
+
+    /** 某人能看到的牌张数：自己手牌 + 四家副露 + 四家牌河 */
+    seenCounts(p) {
+      const c = new Array(27).fill(0);
+      for (const t of this.players[p].hand) c[t]++;
+      for (const q of this.players) {
+        for (const m of q.melds) for (const t of m.tiles) c[t]++;
+        for (const t of q.discards) c[t]++;
+      }
+      return c;
+    }
+
+    setAuto(on) {
+      this.autoPlay = !!on;
+      // 正等着你出牌时打开自动摸打：立刻替你打（不用再等下一巡）
+      const a = this.awaiting;
+      if (this.autoPlay && a && a.kind === 'discard' && a.player === 0 && !a.auto && a.resolve) {
+        const auto = this.autoDecision(0, a.self);
+        if (auto) {
+          this.awaiting = null;
+          this.emitState();
+          a.resolve(auto);
+          return true;
+        }
+      }
+      this.emitState();
+      return this.autoPlay;
     }
 
     /* ---------------- 副露 ---------------- */
@@ -340,7 +413,7 @@
 
     humanDiscard(tile) {
       const a = this.awaiting;
-      if (!a || a.kind !== 'discard' || a.player !== 0) return false;
+      if (!a || a.kind !== 'discard' || a.player !== 0 || a.auto) return false;
       if (!this.players[0].hand.includes(tile)) return false;
       this.awaiting = null;
       this.emitState();
@@ -350,7 +423,7 @@
 
     humanGang(type, tile) {
       const a = this.awaiting;
-      if (!a || a.kind !== 'discard' || a.player !== 0) return false;
+      if (!a || a.kind !== 'discard' || a.player !== 0 || a.auto) return false;
       const self = a.self || {};
       if (type === 'angang' && !(self.angang || []).includes(tile)) return false;
       if (type === 'bugang' && !(self.bugang || []).includes(tile)) return false;
@@ -362,7 +435,7 @@
 
     humanHu() {
       const a = this.awaiting;
-      if (!a || a.kind !== 'discard' || a.player !== 0 || !a.self || !a.self.hu) return false;
+      if (!a || a.kind !== 'discard' || a.player !== 0 || a.auto || !a.self || !a.self.hu) return false;
       this.awaiting = null;
       this.emitState();
       a.resolve({ type: 'hu' });

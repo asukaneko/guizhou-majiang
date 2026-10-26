@@ -84,6 +84,12 @@ html, body {
 }
 .tb-btn:hover { background: rgba(231, 200, 120, 0.14); color: #f6e9c8; border-color: rgba(231, 200, 120, 0.45); }
 .tb-btn:active { transform: translateY(1px); }
+.tb-btn.on {
+  color: #33220a;
+  background: linear-gradient(180deg, #ffe6ad, #dcb05a);
+  border-color: rgba(255, 232, 180, 0.9);
+  box-shadow: 0 0 12px rgba(231, 200, 120, 0.32), inset 0 1px 0 #fff8e0;
+}
 
 .win-btns { display: flex; gap: 2px; margin-left: 6px; }
 .win-btn {
@@ -216,6 +222,7 @@ html, body {
 .badge.zhuang { background: linear-gradient(180deg, #f3d99b, #c39d4f); color: #2c1c05; }
 .badge.ting { background: rgba(127, 208, 176, 0.18); color: #a8ecd0; border: 1px solid rgba(127, 208, 176, 0.4); }
 .badge.said { background: rgba(231, 200, 120, 0.9); color: #2a1a06; }
+.badge.auto { background: rgba(231, 200, 120, 0.16); color: #f0d79a; border: 1px solid rgba(231, 200, 120, 0.5); }
 
 .seat.active .plate {
   border-color: rgba(231, 200, 120, 0.75);
@@ -495,6 +502,22 @@ html, body {
   border-color: rgba(255, 255, 255, 0.16);
   font-size: 14px;
   padding: 0 20px;
+}
+
+/* 自动摸打的提示条（不挡按钮，纯提示） */
+.auto-hint {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-radius: 15px;
+  font-size: 12.5px;
+  letter-spacing: 1px;
+  color: #e6f2ea;
+  background: rgba(8, 22, 17, 0.82);
+  border: 1px solid rgba(231, 200, 120, 0.42);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  animation: btnIn 0.18s ease-out;
 }
 
 @keyframes btnIn {

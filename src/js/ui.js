@@ -86,6 +86,7 @@
     el.turn = $('#cp-turn');
     el.soundBtn = $('#btn-sound');
     el.speedBtn = $('#btn-speed');
+    el.autoBtn = $('#btn-auto');
   }
 
   /* ---------------- 出牌速度 ---------------- */
@@ -101,6 +102,25 @@
     if (game) game.speed = SPEEDS[speedIdx].value;
     el.speedBtn.textContent = `速度 ${SPEEDS[speedIdx].label}`;
     try { localStorage.setItem('gz-speed', String(speedIdx)); } catch (e) { /* ignore */ }
+  }
+
+  /* ---------------- 自动摸打 ---------------- */
+
+  let autoOn = false;
+
+  function applyAuto() {
+    if (game) game.setAuto(autoOn);
+    el.autoBtn.textContent = `自动摸打 ${autoOn ? '开' : '关'}`;
+    el.autoBtn.classList.toggle('on', autoOn);
+    try { localStorage.setItem('gz-auto', autoOn ? '1' : '0'); } catch (e) { /* ignore */ }
+  }
+
+  function toggleAuto() {
+    autoOn = !autoOn;
+    applyAuto();
+    toast(autoOn
+      ? '自动摸打已开启：听牌后自动替你摸打（碰、杠、胡仍由你点）'
+      : '自动摸打关闭，恢复手动出牌', 2600);
   }
 
   /* ---------------- 拼装 ---------------- */
@@ -123,6 +143,7 @@
     const score = game.scores[id];
     const badges = [];
     if (game.dealer === id) badges.push('<span class="badge zhuang">庄</span>');
+    if (id === 0 && game.autoPlay) badges.push('<span class="badge auto">自动</span>');
     if (p.said) badges.push(`<span class="badge said">${p.said}</span>`);
     if (id === 0) {
       const ting = game.tingOf(0);
@@ -198,7 +219,7 @@
       const i = hand.indexOf(pl.justDrawn);
       if (i >= 0) { hand.splice(i, 1); drawn = pl.justDrawn; }
     }
-    const canPlay = !!(awaiting && awaiting.kind === 'discard' && awaiting.player === 0);
+    const canPlay = !!(awaiting && awaiting.kind === 'discard' && awaiting.player === 0 && !awaiting.auto);
     let html = hand.map((t) => faceHtml(t, canPlay ? 'playable' : '')).join('') +
       (drawn != null ? faceHtml(drawn, 'drawn' + (canPlay ? ' playable' : '')) : '');
     // 听牌：按手牌样式排在右侧，每张角上标可见剩张
@@ -242,6 +263,7 @@
   function turnLabel() {
     if (game.phase === 'ended') return '本局结束';
     if (game.awaiting && game.awaiting.kind === 'claim') return '等你决定 · 碰 / 杠 / 胡';
+    if (game.awaiting && game.awaiting.auto) return '自动摸打中';
     const p = game.players[game.turn];
     if (!p) return '';
     return game.turn === 0 ? '轮到你出牌' : `轮到 ${p.name}`;
@@ -263,10 +285,15 @@
     const a = game.awaiting;
     let html = '';
     if (a && a.kind === 'discard' && a.player === 0) {
-      const s = a.self || {};
-      if (s.hu) html += `<button class="action-btn hu" data-act="hu">胡 ${s.hu.name}</button>`;
-      (s.angang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="angang" data-tile="${t}">暗杠 ${TN(t)}</button>`; });
-      (s.bugang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="bugang" data-tile="${t}">补杠 ${TN(t)}</button>`; });
+      if (a.auto) {
+        html += `<div class="auto-hint">自动摸打 · ${a.autoTile != null ? '打出 ' + TN(a.autoTile) : '自摸'}</div>`;
+      } else {
+        const s = a.self || {};
+        if (s.hu) html += `<button class="action-btn hu" data-act="hu">胡 ${s.hu.name}</button>`;
+        (s.angang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="angang" data-tile="${t}">暗杠 ${TN(t)}</button>`; });
+        (s.bugang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="bugang" data-tile="${t}">补杠 ${TN(t)}</button>`; });
+        if (game.autoPlay) html += '<div class="auto-hint">自动摸打待命 · 还没听牌，先手动打一张</div>';
+      }
     } else if (a && a.kind === 'claim') {
       const source = game.players[a.from] ? game.players[a.from].name : '对方';
       html += `<div class="claim-notice">${source} 打出 <b>${TN(a.tile)}</b></div>`;
@@ -538,6 +565,9 @@
     <h3>黄庄</h3>
     <p>牌墙摸完不翻牌，豆与鸡都不算，按查叫结算：未叫的人赔给每个叫牌者「其叫牌牌型的分值」。</p>
 
+    <h3>自动摸打</h3>
+    <p>右上角「自动摸打」开关（快捷键 <span class="hl">A</span>）：听牌后自动替你摸打，打出一张仍保持听牌的牌，能自摸就直接胡；碰、杠、吃炮胡仍然由你决定。没听牌时照常提示你手动出牌。</p>
+
     <h3>本版未实现</h3>
     <p class="note">报听 / 天听 / 天胡地胡 / 抢杠胡 / 热炮 / 一炮多响 / 冲锋鸡 / 责任鸡 / 包鸡。规则口径参考公开的贵阳捉鸡资料，够日常单机开一桌。</p>
 
@@ -579,14 +609,17 @@
       if (e.key === 'Escape') {
         if (game && game.awaiting && game.awaiting.kind === 'claim') game.humanRespond('pass');
         else el.overlay.classList.add('hidden');
+        return;
       }
+      // 键盘 A：开关自动摸打
+      if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.metaKey && !e.altKey) toggleAuto();
     });
 
     /* 鼠标停在手牌上：显示打出去之后听什么、还剩几张 */
     el.stage.addEventListener('mousemove', (e) => {
       const node = e.target && e.target.closest ? e.target.closest('.hand-main .tile') : null;
       const a = game && game.awaiting;
-      if (!node || !a || a.kind !== 'discard' || a.player !== 0) {
+      if (!node || !a || a.kind !== 'discard' || a.player !== 0 || a.auto) {
         if (tipTile !== null) hideTip();
         return;
       }
@@ -598,6 +631,8 @@
       speedIdx = (speedIdx + 1) % SPEEDS.length;
       applySpeed();
     });
+
+    el.autoBtn.addEventListener('click', toggleAuto);
 
     el.soundBtn.addEventListener('click', () => {
       Sound.enabled = !Sound.enabled;
@@ -657,17 +692,20 @@
     try {
       const saved = parseInt(localStorage.getItem('gz-speed'), 10);
       if (saved >= 0 && saved < SPEEDS.length) speedIdx = saved;
+      autoOn = localStorage.getItem('gz-auto') === '1';
     } catch (e) { /* ignore */ }
 
     const savedScore = loadScore();
     game = new GZ.Game({
       speed: SPEEDS[speedIdx].value,
+      autoPlay: autoOn,
       scores: savedScore ? savedScore.scores : undefined,
       roundNo: savedScore ? savedScore.round : undefined,
       dealer: savedScore ? savedScore.dealer : undefined
     });
     window.__game = game;
     applySpeed();
+    applyAuto();
     saveScore();
 
     game.on('state', render);

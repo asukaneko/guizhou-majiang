@@ -187,3 +187,78 @@ test('玩家侧吃碰杠胡路径', { timeout: 120000 }, async () => {
   }
   console.log('玩家侧动作统计', stats);
 });
+
+test('自动摸打：听牌后打出刚摸到的那张，仍保持听牌', () => {
+  const g = new Game({ autoPlay: true });
+  const pl = g.players[0];
+  pl.hand = handOf([
+    [W, 1], [W, 2], [W, 3], [W, 4], [W, 5], [W, 6], [W, 7], [W, 8], [W, 9],
+    [P, 5], [P, 5], [P, 7], [P, 8],
+    [TI, 1]
+  ]);
+  pl.hand = R.sortHand(pl.hand);
+  pl.justDrawn = c(TI, 1);
+  const decision = g.autoDecision(0, { hu: null });
+  assert.equal(decision.type, 'discard');
+  assert.equal(decision.tile, c(TI, 1), '应该打掉没用的刚摸牌');
+  const rest = pl.hand.filter((t) => t !== decision.tile);
+  assert.deepEqual(R.tenpaiTiles(rest, []).sort((a, b) => a - b), [c(P, 6), c(P, 9)]);
+});
+
+test('自动摸打：能自摸就直接胡', () => {
+  const g = new Game({ autoPlay: true });
+  const pl = g.players[0];
+  pl.hand = handOf([
+    [W, 1], [W, 2], [W, 3], [W, 4], [W, 5], [W, 6], [W, 7], [W, 8], [W, 9],
+    [P, 5], [P, 5], [P, 6], [P, 7], [P, 8]
+  ]);
+  pl.hand = R.sortHand(pl.hand);
+  pl.justDrawn = c(P, 8);
+  const info = R.winInfo(pl.hand, []);
+  assert.ok(info);
+  assert.deepEqual(g.autoDecision(0, { hu: info }), { type: 'hu' });
+});
+
+test('自动摸打：没听牌时不接管，交回玩家手动出牌', () => {
+  const g = new Game({ autoPlay: true });
+  const pl = g.players[0];
+  pl.hand = handOf([
+    [W, 1], [W, 4], [W, 7], [TI, 1], [TI, 4], [TI, 7],
+    [P, 1], [P, 4], [P, 7], [W, 2], [TI, 2], [P, 2], [P, 5],
+    [W, 9]
+  ]);
+  pl.hand = R.sortHand(pl.hand);
+  pl.justDrawn = c(W, 9);
+  assert.equal(g.autoDecision(0, { hu: null }), null);
+});
+
+test('自动摸打：整局能自己跑完，只在没听牌时才要人操作', { timeout: 120000 }, async () => {
+  const g = new Game({ speed: 90, dealer: 0, autoPlay: true });
+  const errors = [];
+  let manual = 0;
+  g.on('error', (e) => errors.push(e));
+  g.on('prompt', (a) => {
+    if (a.kind === 'discard') {
+      manual++;
+      // 会自动摸打的手不该弹出提示
+      assert.equal(g.autoDecision(0, a.self), null, '听牌时不应要求手动出牌');
+    }
+    setTimeout(() => {
+      if (g.awaiting !== a) return;
+      if (a.kind === 'discard') g.humanDiscard(g.players[0].hand[0]);
+      else g.humanRespond('pass');
+    }, 0);
+  });
+  let resolveEnd = null;
+  g.on('roundEnd', () => { if (resolveEnd) { const r = resolveEnd; resolveEnd = null; r(); } });
+
+  for (let i = 0; i < 4; i++) {
+    const done = new Promise((r) => { resolveEnd = r; });
+    g.startRound();
+    await done;
+    assert.equal(g.scores.reduce((a, b) => a + b, 0), 0);
+    assert.equal(errors.length, 0, '不应出现对局异常');
+    g.nextDealer = (g.dealer + 1) % 4;
+  }
+  console.log('自动摸打时仍需手动出牌的次数', manual);
+});
