@@ -159,28 +159,8 @@ html, body {
 .seat-bottom .melds { position: absolute; right: 18px; bottom: 118px; }
 .seat-bottom .hand-main { position: absolute; left: 50%; transform: translateX(-50%); bottom: 26px; }
 .seat-bottom .ting-status {
-  position: absolute;
-  left: 16px;
-  bottom: 158px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-  max-width: 420px;
-  padding: 6px 9px;
-  border-radius: 9px;
-  background: rgba(5, 20, 14, 0.88);
-  border: 1px solid rgba(231, 200, 120, 0.3);
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.3);
-  z-index: 18;
+  display: none;
 }
-.seat-bottom .ting-status.hidden { display: none; }
-.ting-title { color: #ffdf9b; font-size: 11px; font-weight: 700; white-space: nowrap; }
-.ting-waits { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-.ting-wait { display: inline-flex; align-items: center; gap: 3px; color: #d5e8dc; font-size: 10.5px; white-space: nowrap; }
-.ting-wait .face { position: static; width: 17px; height: 23px; display: block; }
-.ting-wait b { color: #9fe0b6; font-size: 10px; }
-.ting-total { color: #9db8aa; font-size: 10.5px; white-space: nowrap; }
 .seat-left { left: 12px; top: 96px; width: 320px; height: 470px; }
 .seat-right { right: 12px; top: 96px; width: 320px; height: 470px; }
 .seat-left .plate { position: absolute; left: 4px; top: 0; }
@@ -340,6 +320,77 @@ html, body {
 }
 .hand-main .tile.drawn { margin-left: 12px; }
 .hand-main .tile.dimmed { opacity: 0.45; }
+
+/* 听牌张：用手牌样式排在右侧，角标是可见剩张 */
+.ting-sep {
+  position: relative;
+  width: 26px;
+  align-self: stretch;
+  margin: 2px 4px 8px;
+}
+.ting-sep::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(231, 200, 120, 0.55), transparent);
+}
+.ting-sep::after {
+  content: "听";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 3px 4px;
+  border-radius: 6px;
+  background: rgba(6, 18, 13, 0.94);
+  border: 1px solid rgba(231, 200, 120, 0.45);
+  color: #e7c878;
+  font: 700 12px/1 KaiTi, STKaiti, serif;
+}
+.ting-tile {
+  width: 48px;
+  height: 64px;
+  border-radius: 6px;
+  cursor: default;
+  box-shadow: 0 0 0 2px rgba(255, 214, 130, 0.6), 0 6px 14px rgba(0, 0, 0, 0.4), inset 0 1px 0 #fff;
+}
+.ting-tile::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 14px rgba(255, 196, 90, 0.3);
+  pointer-events: none;
+}
+.ting-count {
+  position: absolute;
+  right: -5px;
+  bottom: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: rgba(8, 20, 14, 0.96);
+  border: 1px solid rgba(231, 200, 120, 0.75);
+  color: #ffdc93;
+  font: 700 10.5px/16px "Microsoft YaHei", sans-serif;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.ting-more {
+  align-self: center;
+  margin-left: 8px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgba(8, 20, 14, 0.85);
+  border: 1px solid rgba(231, 200, 120, 0.35);
+  color: #e7c878;
+  font-size: 11px;
+  white-space: nowrap;
+}
 
 /* ---------------- 牌河 ---------------- */
 

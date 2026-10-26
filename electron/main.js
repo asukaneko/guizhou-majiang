@@ -110,6 +110,29 @@ async function capture() {
       })(); true;
     `);
     await sleep(900);
+  } else if (shotMode === 'ting') {
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        g.speed = 0.00001;
+        g.askDiscard = function(){ return new Promise(function(){}); };
+      })(); true;
+    `);
+    await sleep(700);
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        g.phase = 'playing';
+        g.turn = 2;
+        g.players[0].hand = [0,1,2,3,4,5,6,7,8,12,13,18,18];
+        g.players[0].melds = [];
+        g.players[0].discards = [];
+        g.players[0].justDrawn = null;
+        g.awaiting = null;
+        g.emitState();
+      })(); true;
+    `);
+    await sleep(700);
   } else if (shotMode === 'tip') {
     await w.webContents.executeJavaScript(`
       (function(){

@@ -148,7 +148,7 @@
     document.querySelectorAll('.seat').forEach((seat) => {
       const id = +seat.dataset.seat;
       if (id === 0) {
-        seat.innerHTML = '<div class="plate"></div><div class="melds"></div><div class="ting-status hidden"></div><div class="hand-main"></div>';
+        seat.innerHTML = '<div class="plate"></div><div class="melds"></div><div class="hand-main"></div>';
       } else {
         seat.innerHTML = '<div class="plate"></div><div class="hand"></div><div class="melds"></div>';
       }
@@ -170,7 +170,6 @@
     renderSeats();
     renderRivers();
     renderHand();
-    renderTingStatus();
     renderCenter();
     renderActions();
     renderActive();
@@ -200,10 +199,28 @@
       if (i >= 0) { hand.splice(i, 1); drawn = pl.justDrawn; }
     }
     const canPlay = !!(awaiting && awaiting.kind === 'discard' && awaiting.player === 0);
-    const html = hand.map((t) => faceHtml(t, canPlay ? 'playable' : '')).join('') +
+    let html = hand.map((t) => faceHtml(t, canPlay ? 'playable' : '')).join('') +
       (drawn != null ? faceHtml(drawn, 'drawn' + (canPlay ? ' playable' : '')) : '');
+    // 听牌：按手牌样式排在右侧，每张角上标可见剩张
+    if (drawn == null) html += tingTilesHtml();
     setHtml(node, html);
     node.classList.toggle('my-turn', canPlay);
+  }
+
+  /** 听牌张（手牌样式 + 剩余张数角标），最多展示 4 张，其余用 +N */
+  function tingTilesHtml() {
+    const ting = game.tingOf(0);
+    if (!ting || !ting.tiles.length) return '';
+    const visible = visibleCounts();
+    const waits = ting.tiles
+      .map((tile) => ({ tile, left: Math.max(0, 4 - visible[tile]) }))
+      .sort((a, b) => a.tile - b.tile);
+    const shown = waits.slice(0, 4);
+    const rest = waits.length - shown.length;
+    const tiles = shown.map((wait) =>
+      `<div class="tile ting-tile" title="${TN(wait.tile)} 可见剩 ${wait.left} 张">${T.face(wait.tile)}<span class="ting-count">${wait.left}</span></div>`
+    ).join('');
+    return `<div class="ting-sep"></div>${tiles}${rest > 0 ? `<span class="ting-more">+${rest}</span>` : ''}`;
   }
 
   function renderRivers() {
