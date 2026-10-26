@@ -10,6 +10,7 @@
 
   const SEAT_NAMES = ['你', '下家', '对家', '上家'];
   const KONG_POINT = 3;
+  const BONUS = R.BONUS;
 
   const removeTiles = (hand, tile, n) => {
     const out = hand.slice();
@@ -37,16 +38,25 @@
         melds: [],
         discards: [],
         said: '',
-        mustDiscard: false
+        mustDiscard: false,
+        justDrawn: null,
+        tingDeclared: false,   // 报听（硬报）
+        tianTing: false,       // 天听
+        tingAtDeal: false      // 起手 13 张就听牌
       }));
       this.phase = 'idle';
       this.awaiting = null;
       this.autoPlay = !!opts.autoPlay;
       this.kongLog = [];
+      this.penaltyLog = [];
       this.roundDeltas = [0, 0, 0, 0];
       this.wall = [];
       this.turn = this.dealer;
       this.lastDiscard = null;
+      this.discardSeq = 0;       // 本局已经打出多少张（判断天胡 / 地胡 / 热炮）
+      this.discardHot = false;   // 刚打出的这张是不是杠后打出的
+      this.lastKongBy = -1;
+      this.firstChicken = null;  // 冲锋鸡 {p, tile, index, taken}
       this.result = null;
       this.log = [];
     }
@@ -79,13 +89,19 @@
       this.result = null;
       this.awaiting = null;
       this.kongLog = [];
+      this.penaltyLog = [];
       this.roundDeltas = [0, 0, 0, 0];
       this.lastDiscard = null;
+      this.discardSeq = 0;
+      this.discardHot = false;
+      this.lastKongBy = -1;
+      this.firstChicken = null;
       this.log = [];
       this.wall = R.shuffle(R.createWall());
       for (const p of this.players) {
         p.hand = []; p.melds = []; p.discards = []; p.said = '';
         p.mustDiscard = false; p.justDrawn = null;
+        p.tingDeclared = false; p.tianTing = false; p.tingAtDeal = false;
       }
       for (let k = 0; k < 13; k++) {
         for (let i = 0; i < 4; i++) {
@@ -93,7 +109,10 @@
         }
       }
       // 四家先各发 13 张；庄家首摸由 playLoop 统一完成，避免庄家多摸一张。
-      for (const p of this.players) p.hand = R.sortHand(p.hand);
+      for (const p of this.players) {
+        p.hand = R.sortHand(p.hand);
+        p.tingAtDeal = R.tenpaiTiles(p.hand, []).length > 0;
+      }
       this.turn = this.dealer;
       this.emitState();
       this.emit('deal', this);
@@ -126,10 +145,16 @@
 
           if (!pl.isHuman) {
             const self = this.selfActions(cur);
-            if (self.hu) return this.settleWin(cur, { selfDraw: true, winTile: tile, gangFlower });
+            if (self.hu) {
+              return this.settleWin([{ p: cur, winTile: tile }], {
+                selfDraw: true, gangFlower,
+                tianhu: this.isTianHu(cur), dihu: this.isDiHu(cur, true)
+              });
+            }
             const gang = AI.decideSelfGang(self);
             if (gang) {
               await this.doKong(cur, gang.type, gang.tile);
+              if (this.phase !== 'playing') return;
               needDraw = true; gangFlower = true;
               continue;
             }
@@ -143,20 +168,22 @@
         if (decision.type === 'none' || this.phase !== 'playing') return;
 
         if (decision.type === 'hu') {
-          return this.settleWin(cur, {
-            selfDraw: true,
-            winTile: this.players[cur].justDrawn != null ? this.players[cur].justDrawn : null,
-            gangFlower
+          const winTile = this.players[cur].justDrawn != null ? this.players[cur].justDrawn : null;
+          return this.settleWin([{ p: cur, winTile }], {
+            selfDraw: true, gangFlower,
+            tianhu: this.isTianHu(cur), dihu: this.isDiHu(cur, true)
           });
         }
         if (decision.type === 'gang') {
           await this.doKong(cur, decision.gangType, decision.tile);
+          if (this.phase !== 'playing') return;
           needDraw = true; gangFlower = true;
           continue;
         }
 
         const tile = decision.tile;
         this.discard(cur, tile);
+        const hot = this.discardHot;
         await this.delay(240);
 
         const claim = await this.resolveClaims(cur, tile);
@@ -166,7 +193,13 @@
           continue;
         }
         if (claim.type === 'hu') {
-          return this.settleWin(claim.p, { selfDraw: false, from: cur, winTile: tile });
+          // 一炮多响：所有胡的人一起结算，点炮者各赔一份
+          return this.settleWin(claim.winners, {
+            selfDraw: false,
+            from: cur,
+            repao: hot,
+            dihu: claim.winners.length === 1 && this.isDiHu(claim.winners[0].p, false, cur)
+          });
         }
         if (claim.type === 'peng') {
           this.doPeng(claim.p, tile, cur);
@@ -175,6 +208,7 @@
         }
         if (claim.type === 'gang') {
           await this.doKong(claim.p, 'minggang', tile, cur);
+          if (this.phase !== 'playing') return;
           cur = claim.p; needDraw = true; gangFlower = true;
           continue;
         }
@@ -189,6 +223,15 @@
       pl.mustDiscard = false;
       pl.said = '';
       this.lastDiscard = { p, tile };
+      this.discardSeq += 1;
+      // 杠后打出的这张被别人胡 → 热炮
+      this.discardHot = this.lastKongBy === p;
+      if (this.lastKongBy === p) this.lastKongBy = -1;
+      // 冲锋鸡：本局第一张被打出的幺鸡 / 乌骨鸡
+      if (!this.firstChicken && (tile === R.YAOJI || tile === R.WUGU)) {
+        this.firstChicken = { p, tile, index: pl.discards.length - 1, taken: false };
+        this.note(`冲锋鸡：${pl.name} 打出 ${R.tileName(tile)}`);
+      }
       this.emit('discard', { p, tile });
       this.emitState();
     }
@@ -202,8 +245,11 @@
       const c = R.counts(pl.hand);
       const angang = [];
       const bugang = [];
-      for (let t = 0; t < 27; t++) if (c[t] === 4) angang.push(t);
-      for (const m of pl.melds) if (m.type === 'peng' && c[m.tile] >= 1) bugang.push(m.tile);
+      // 报听后手牌锁定，不能再碰 / 杠
+      if (!pl.tingDeclared) {
+        for (let t = 0; t < 27; t++) if (c[t] === 4) angang.push(t);
+        for (const m of pl.melds) if (m.type === 'peng' && c[m.tile] >= 1) bugang.push(m.tile);
+      }
       return { hu: info, angang, bugang };
     }
 
@@ -217,18 +263,34 @@
         });
       }
 
-      // 自动摸打：听牌后由程序替你摸打，停一下让人看清打了哪张
-      const auto = this.autoPlay ? this.autoDecision(p, self) : null;
-      if (!auto) return this.waitHumanDiscard(p, self);
+      // 报听：手牌锁定，能胡就胡、摸什么打什么
+      if (pl.tingDeclared) {
+        const auto = self && self.hu
+          ? { type: 'hu' }
+          : { type: 'discard', tile: pl.justDrawn != null ? pl.justDrawn : this.bestTingDiscard(p) };
+        return this.playAuto(p, self, auto, 340, true);
+      }
+
+      // 自动摸打：听牌后由程序替你摸打
+      if (this.autoPlay) {
+        const auto = this.autoDecision(p, self);
+        if (auto) return this.playAuto(p, self, auto, 380, false);
+      }
+      return this.waitHumanDiscard(p, self);
+    }
+
+    /** 程序代打：先亮出要打哪张，再落子。sticky = 报听后不可撤销 */
+    playAuto(p, self, auto, ms, sticky) {
       const awaiting = {
         kind: 'discard', player: p, self, auto: true,
+        ting: this.players[p].tingDeclared,
         autoTile: auto.type === 'hu' ? null : auto.tile
       };
       this.awaiting = awaiting;
       this.emitState();
-      return this.delay(380).then(() => {
+      return this.delay(ms).then(() => {
         if (this.phase !== 'playing') return { type: 'none' };
-        if (!this.autoPlay) return this.waitHumanDiscard(p, self); // 中途关掉 → 交回手动
+        if (!sticky && !this.autoPlay) return this.waitHumanDiscard(p, self); // 中途关掉自动摸打
         if (this.awaiting === awaiting) this.awaiting = null;
         this.emitState();
         return auto;
@@ -245,13 +307,12 @@
     }
 
     /**
-     * 自动摸打的选择：听牌后打一张仍保持听牌的牌（优先打刚摸的、听口剩张多的），
-     * 能自摸就直接胡。没听牌返回 null，交回玩家手动出牌。
+     * 听牌时打哪张：保持听牌、听口可见剩张多，平手时打刚摸到的那张。
+     * 手里不是 14 - 3×副露 张、或者怎么打都不听牌 → null
      */
-    autoDecision(p, self) {
+    bestTingDiscard(p) {
       const pl = this.players[p];
       if (pl.hand.length !== 14 - pl.melds.length * 3) return null;
-      if (self && self.hu) return { type: 'hu' };
       const seen = this.seenCounts(p);
       const tried = new Set();
       let best = null;
@@ -261,11 +322,25 @@
         const waits = R.tenpaiTiles(removeTiles(pl.hand, tile, 1), pl.melds);
         if (!waits.length) continue;
         const left = waits.reduce((sum, w) => sum + Math.max(0, 4 - seen[w]), 0);
-        // 先比听口剩张，再优先打刚摸到的那张（不破坏原来的听牌）
         const score = left * 2 + (tile === pl.justDrawn ? 1 : 0);
         if (!best || score > best.score) best = { score, tile };
       }
-      return best ? { type: 'discard', tile: best.tile } : null;
+      return best ? best.tile : null;
+    }
+
+    /** 自动摸打的选择：能自摸就胡，听牌就打一张保持听牌的，没听牌返回 null */
+    autoDecision(p, self) {
+      const pl = this.players[p];
+      if (pl.hand.length !== 14 - pl.melds.length * 3) return null;
+      if (self && self.hu) return { type: 'hu' };
+      const tile = this.bestTingDiscard(p);
+      return tile == null ? null : { type: 'discard', tile };
+    }
+
+    /** 现在能不能报听 */
+    canTing(p) {
+      const pl = this.players[p];
+      return !!pl && !pl.tingDeclared && this.bestTingDiscard(p) != null;
     }
 
     /** 某人能看到的牌张数：自己手牌 + 四家副露 + 四家牌河 */
@@ -305,12 +380,21 @@
       pl.mustDiscard = true;
       pl.said = '碰';
       this.turn = p;
+      this.settleResponsibility(p, tile, from);
       this.note(`${pl.name} 碰 ${R.tileName(tile)}`);
       this.emit('call', { p, text: '碰', tile });
       this.emitState();
     }
 
     async doKong(p, type, tile, from) {
+      // 补杠可能被抢杠胡，抢杠时杠不成立
+      if (type === 'bugang') {
+        const robbers = await this.resolveRobKong(p, tile);
+        if (robbers.length) {
+          this.settleWin(robbers, { selfDraw: false, from: p, robKong: true });
+          return false;
+        }
+      }
       const pl = this.players[p];
       let payers;
       const deltas = [0, 0, 0, 0];
@@ -337,9 +421,28 @@
       this.applyDeltas(deltas);
       this.kongLog.push({ p, type, tile, deltas, payers });
       this.note(`${pl.name} ${pl.said} ${R.tileName(tile)}（${payers.map((i) => this.players[i].name).join('、')}各付 ${KONG_POINT}）`);
+      if (type === 'minggang') this.settleResponsibility(p, tile, from);
+      this.lastKongBy = p; // 杠后打出的牌若被胡 → 热炮
       this.emit('call', { p, text: pl.said, tile });
       this.emitState();
       await this.delay(320);
+      return true;
+    }
+
+    /**
+     * 冲锋鸡被别人碰 / 杠走 → 变成责任鸡：打牌的人赔一个豆（3 分）给拿走的人。
+     */
+    settleResponsibility(taker, tile, from) {
+      const fc = this.firstChicken;
+      if (!fc || fc.taken || fc.p !== from || fc.tile !== tile) return false;
+      fc.taken = true;
+      const deltas = [0, 0, 0, 0];
+      deltas[from] -= KONG_POINT;
+      deltas[taker] += KONG_POINT;
+      this.applyDeltas(deltas);
+      this.penaltyLog.push({ kind: '责任鸡', p: from, to: taker, tile, points: KONG_POINT, deltas });
+      this.note(`责任鸡：${this.players[from].name} 的冲锋鸡被 ${this.players[taker].name} 拿走，赔 ${KONG_POINT} 分`);
+      return true;
     }
 
     applyDeltas(deltas) {
@@ -363,17 +466,22 @@
         if (info && !R.canChiPao(info) && pl.isHuman) {
           this.emit('blocked', { info, tile });
         }
-        if (c[tile] >= 3) acts.push('gang');
-        if (c[tile] >= 2) acts.push('peng');
+        // 报听的人不能再碰 / 杠
+        if (!pl.tingDeclared) {
+          if (c[tile] >= 3) acts.push('gang');
+          if (c[tile] >= 2) acts.push('peng');
+        }
         if (acts.length) claims.push({ p, acts, k, info });
       }
       if (!claims.length) return null;
 
       const picks = [];
       const humanClaim = claims.find((c) => this.players[c.p].isHuman);
-      let humanPick = null;
       if (humanClaim) {
-        humanPick = await this.askClaim(tile, from, humanClaim);
+        // 报听的人见炮就胡
+        const humanPick = this.players[0].tingDeclared && humanClaim.acts.includes('hu')
+          ? 'hu'
+          : await this.askClaim(tile, from, humanClaim);
         if (humanPick) picks.push({ p: 0, type: humanPick, k: humanClaim.k });
       }
       for (const cl of claims) {
@@ -382,16 +490,53 @@
         if (a) picks.push({ p: cl.p, type: a, k: cl.k });
       }
       if (!picks.length) return null;
-      const rank = { hu: 3, gang: 2, peng: 1 };
-      picks.sort((a, b) => rank[b.type] - rank[a.type] || a.k - b.k);
-      await this.delay(220); // 让「碰 / 杠 / 胡」有个落点，不至于瞬间切走
-      return { p: picks[0].p, type: picks[0].type };
+
+      // 一炮多响：所有能胡的都胡，点炮者各赔一份
+      const hus = picks.filter((x) => x.type === 'hu').sort((a, b) => a.k - b.k);
+      if (hus.length) {
+        await this.delay(220);
+        return { type: 'hu', winners: hus.map((x) => ({ p: x.p, winTile: tile })) };
+      }
+
+      const rank = { gang: 2, peng: 1 };
+      const rest = picks.sort((a, b) => rank[b.type] - rank[a.type] || a.k - b.k);
+      await this.delay(220); // 让「碰 / 杠」有个落点，不至于瞬间切走
+      return { p: rest[0].p, type: rest[0].type };
+    }
+
+    /** 补杠时看看有没人抢杠胡 */
+    async resolveRobKong(kongger, tile) {
+      const claims = [];
+      for (let k = 1; k < 4; k++) {
+        const p = (kongger + k) % 4;
+        const pl = this.players[p];
+        const info = R.winInfo(pl.hand.concat(tile), pl.melds);
+        if (info) claims.push({ p, k, info });
+      }
+      if (!claims.length) return [];
+
+      const robbers = [];
+      const human = claims.find((c) => this.players[c.p].isHuman);
+      if (human) {
+        if (this.players[0].tingDeclared) robbers.push({ p: 0, winTile: tile });
+        else {
+          const pick = await this.askClaim(tile, kongger, { acts: ['hu'], info: human.info, rob: true });
+          if (pick === 'hu') robbers.push({ p: 0, winTile: tile });
+        }
+      }
+      for (const c of claims) {
+        if (this.players[c.p].isHuman) continue;
+        robbers.push({ p: c.p, winTile: tile });
+      }
+      if (!robbers.length) return [];
+      await this.delay(260);
+      return robbers;
     }
 
     askClaim(tile, from, claim) {
       const awaiting = {
         kind: 'claim', player: 0, tile, from, options: claim.acts,
-        info: claim.info
+        info: claim.info, rob: !!claim.rob
       };
       this.awaiting = awaiting;
       this.emitState();
@@ -442,6 +587,24 @@
       return true;
     }
 
+    /** 报听：锁牌，之后摸什么打什么，见胡就胡 */
+    humanTing() {
+      const a = this.awaiting;
+      if (!a || a.kind !== 'discard' || a.player !== 0 || a.auto) return false;
+      const pl = this.players[0];
+      if (pl.tingDeclared) return false;
+      const tile = this.bestTingDiscard(0);
+      if (tile == null) return false;
+      pl.tingDeclared = true;
+      pl.tianTing = !!pl.tingAtDeal && !pl.discards.length && !pl.melds.length;
+      this.note(`${pl.name} ${pl.tianTing ? '天听' : '报听'}：打出 ${R.tileName(tile)} 后锁牌`);
+      this.emit('ting', { p: 0, tianTing: pl.tianTing, tile });
+      this.awaiting = null;
+      this.emitState();
+      a.resolve({ type: 'discard', tile });
+      return true;
+    }
+
     humanRespond(action) {
       const a = this.awaiting;
       if (!a || a.kind !== 'claim') return false;
@@ -451,67 +614,145 @@
       return true;
     }
 
+    /* ---------------- 天胡 / 地胡 ---------------- */
+
+    isTianHu(p) {
+      if (p !== this.dealer) return false;
+      if (this.discardSeq !== 0) return false;
+      return this.players.every((q) => !q.melds.length && !q.discards.length);
+    }
+
+    isDiHu(p, selfDraw, from) {
+      if (p === this.dealer) return false;
+      if (p !== (this.dealer + 1) % 4) return false; // 只有下家赶得上第一巡
+      if (this.discardSeq > 1) return false;
+      const pl = this.players[p];
+      if (pl.discards.length || pl.melds.length) return false;
+      if (selfDraw) return this.discardSeq === 1;
+      return from === this.dealer && this.discardSeq === 1;
+    }
+
     /* ---------------- 结算 ---------------- */
 
-    settleWin(p, opts) {
+    settleWin(winners, opts) {
       if (this.phase === 'ended') return;
+      opts = opts || {};
+      if (!Array.isArray(winners)) winners = [{ p: winners, winTile: opts.winTile }];
       this.phase = 'ended';
-      const pl = this.players[p];
-      const winTile = opts.winTile != null ? opts.winTile : null;
-      const fullHand = opts.selfDraw ? pl.hand.slice() : R.sortHand(pl.hand.concat(winTile));
-      const info = R.winInfo(fullHand, pl.melds);
 
-      const extra = [];
-      let points = info ? info.points : 1;
-      if (opts.selfDraw) { points += 1; extra.push('自摸 +1'); }
-      if (opts.gangFlower) { points += 1; extra.push('杠上花 +1'); }
+      const results = winners.map((w) => {
+        const p = w.p;
+        const pl = this.players[p];
+        const winTile = w.winTile != null ? w.winTile : null;
+        const fullHand = opts.selfDraw ? pl.hand.slice() : R.sortHand(pl.hand.concat(winTile));
+        const info = R.winInfo(fullHand, pl.melds);
 
-      const deltas = [0, 0, 0, 0];
-      if (opts.selfDraw) {
-        for (let i = 0; i < 4; i++) if (i !== p) { deltas[i] -= points; deltas[p] += points; }
-      } else {
-        deltas[opts.from] -= points;
-        deltas[p] += points;
+        const extra = [];
+        let points = info ? info.points : 1;
+        if (opts.selfDraw) { points += 1; extra.push('自摸 +1'); }
+        if (opts.gangFlower) { points += 1; extra.push('杠上花 +1'); }
+        if (opts.repao) { points += BONUS.repao; extra.push(`热炮 +${BONUS.repao}`); }
+        if (opts.tianhu) { points += BONUS.tianhu; extra.push(`天胡 +${BONUS.tianhu}`); }
+        if (opts.dihu) { points += BONUS.dihu; extra.push(`地胡 +${BONUS.dihu}`); }
+        if (opts.robKong) { points += BONUS.qianggang; extra.push(`抢杠胡 +${BONUS.qianggang}`); }
+        if (pl.tingDeclared) {
+          const bonus = pl.tianTing ? BONUS.tianting : BONUS.baoting;
+          points += bonus;
+          extra.push(`${pl.tianTing ? '天听' : '报听'} +${bonus}`);
+        }
+
+        return {
+          p, winTile, selfDraw: !!opts.selfDraw, from: opts.from,
+          hand: fullHand,
+          melds: pl.melds.map((m) => Object.assign({}, m)),
+          info, points, extra
+        };
+      });
+
+      // 胡牌分：自摸三家各付；抢杠由杠家包三家；其余由点炮者付（一炮多响各赔一份）
+      const winDeltas = [0, 0, 0, 0];
+      for (const r of results) {
+        if (r.selfDraw) {
+          for (let i = 0; i < 4; i++) {
+            if (i === r.p) continue;
+            winDeltas[i] -= r.points;
+            winDeltas[r.p] += r.points;
+          }
+        } else if (opts.robKong) {
+          winDeltas[r.from] -= r.points * 3;
+          winDeltas[r.p] += r.points * 3;
+        } else {
+          winDeltas[r.from] -= r.points;
+          winDeltas[r.p] += r.points;
+        }
       }
-      this.applyDeltas(deltas);
+      this.applyDeltas(winDeltas);
 
+      // 鸡
       const flip = this.wall.length ? this.wall[0] : null;
       const chickens = R.chickenSet(flip);
-      const isTing = this.players.map((q, i) => (i === p ? true : R.tenpaiTiles(q.hand, q.melds).length > 0));
-      const chickenCount = this.players.map((q) => R.chickenPoints(q.hand, q.melds, q.discards, chickens));
+      const winnerSeats = results.map((r) => r.p);
+      const isTing = this.players.map((q, i) =>
+        winnerSeats.indexOf(i) >= 0 || R.tenpaiTiles(q.hand, q.melds).length > 0);
+      const charge = this.firstChicken && !this.firstChicken.taken ? this.firstChicken : null;
+      const chickenCount = this.players.map((q, i) => {
+        let n = R.chickenPoints(q.hand, q.melds, q.discards, chickens);
+        if (charge && charge.p === i) n += R.chickenRate(chickens, charge.tile); // 冲锋鸡翻倍
+        return n;
+      });
+
       const chickenDeltas = [0, 0, 0, 0];
+      const move = (from, to, n) => { chickenDeltas[from] -= n; chickenDeltas[to] += n; };
+      // 叫牌的人收鸡：其他三家各付一份
       for (let i = 0; i < 4; i++) {
         if (!isTing[i] || !chickenCount[i]) continue;
-        for (let j = 0; j < 4; j++) if (j !== i) { chickenDeltas[j] -= chickenCount[i]; chickenDeltas[i] += chickenCount[i]; }
+        for (let j = 0; j < 4; j++) if (j !== i) move(j, i, chickenCount[i]);
+      }
+      // 包鸡：没叫牌的人，自己手里的鸡反过来赔给每个胡牌的人
+      const baoji = [];
+      for (let i = 0; i < 4; i++) {
+        if (isTing[i] || !chickenCount[i]) continue;
+        for (const r of results) {
+          move(i, r.p, chickenCount[i]);
+          baoji.push({ p: i, to: r.p, points: chickenCount[i] });
+        }
       }
       this.applyDeltas(chickenDeltas);
 
+      const first = results[0];
       this.result = {
         draw: false,
-        winner: p,
-        selfDraw: !!opts.selfDraw,
-        from: opts.from,
-        winTile,
-        hand: fullHand,
-        melds: pl.melds.map((m) => Object.assign({}, m)),
-        info,
-        points,
-        extra,
-        winDeltas: deltas.slice(),
+        winners: results,
+        winner: first.p,
+        selfDraw: first.selfDraw,
+        robKong: !!opts.robKong,
+        from: first.from,
+        winTile: first.winTile,
+        hand: first.hand,
+        melds: first.melds,
+        info: first.info,
+        points: first.points,
+        extra: first.extra,
+        winDeltas,
         flip,
         chickens,
         chickenCount,
         chickenDeltas,
+        charge: charge ? { p: charge.p, tile: charge.tile } : null,
+        baoji,
         isTing,
         kongLog: this.kongLog.slice(),
+        penaltyLog: this.penaltyLog.slice(),
         deltas: this.roundDeltas.slice(),
         scores: this.scores.slice()
       };
-      this.note(`${pl.name} ${opts.selfDraw ? '自摸' : '胡牌'}：${info ? info.name : ''} ${points} 分`);
+      const names = results.map((r) => this.players[r.p].name).join('、');
+      const desc = results.map((r) => `${r.info ? r.info.name : '胡牌'} ${r.points} 分`).join('、');
+      this.note(`${names} ${opts.selfDraw ? '自摸' : '胡牌'}：${desc}`);
       this.emit('win', this.result);
       this.emitState();
       this.emit('roundEnd', this.result);
-      this.nextDealer = p;
+      this.nextDealer = first.p;
       return this.result;
     }
 
@@ -535,7 +776,8 @@
         ting,
         deltas: this.roundDeltas.slice(),
         scores: this.scores.slice(),
-        kongLog: this.kongLog.slice()
+        kongLog: this.kongLog.slice(),
+        penaltyLog: this.penaltyLog.slice()
       };
       this.note('牌墙摸完，黄庄查叫');
       this.emit('draw', this.result);
@@ -561,5 +803,5 @@
     }
   }
 
-  return { Game, SEAT_NAMES, KONG_POINT };
+  return { Game, SEAT_NAMES, KONG_POINT, BONUS };
 });

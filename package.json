@@ -8,6 +8,7 @@
     "start": "node scripts/launch.js",
     "shot": "node scripts/launch.js --shot --shot-mode=table --shot-path=output/table.png",
     "shot:preview": "node scripts/launch.js --shot --shot-url=src/preview.html --shot-path=output/tiles.png",
+    "sim": "node scripts/sim.cjs",
     "test": "node --test test/rules.test.cjs"
   },
   "devDependencies": {

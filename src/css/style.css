@@ -223,6 +223,7 @@ html, body {
 .badge.ting { background: rgba(127, 208, 176, 0.18); color: #a8ecd0; border: 1px solid rgba(127, 208, 176, 0.4); }
 .badge.said { background: rgba(231, 200, 120, 0.9); color: #2a1a06; }
 .badge.auto { background: rgba(231, 200, 120, 0.16); color: #f0d79a; border: 1px solid rgba(231, 200, 120, 0.5); }
+.badge.baoting { background: rgba(255, 225, 160, 0.94); color: #3a2405; }
 
 .seat.active .plate {
   border-color: rgba(231, 200, 120, 0.75);
@@ -503,6 +504,13 @@ html, body {
   font-size: 14px;
   padding: 0 20px;
 }
+/* 报听：金色描边，和「胡」区分开 */
+.action-btn.ting {
+  color: #ffe6ad;
+  background: rgba(26, 16, 3, 0.92);
+  border: 1px solid rgba(255, 226, 160, 0.85);
+  box-shadow: 0 0 14px rgba(231, 200, 120, 0.3), inset 0 1px 0 rgba(255, 245, 214, 0.18);
+}
 
 /* 自动摸打的提示条（不挡按钮，纯提示） */
 .auto-hint {
@@ -718,6 +726,44 @@ html, body {
 .meld-inline { display: flex; gap: 6px; align-items: center; padding-left: 10px; margin-left: 6px; border-left: 1px solid rgba(255, 255, 255, 0.14); }
 .ji-flip .tile { width: 27px; height: 36px; }
 .ji-chip .tile { width: 15px; height: 20px; }
+
+/* 一炮多响：每家胡牌各一块 */
+.winner-block + .winner-block { margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(231, 200, 120, 0.16); }
+.winner-block .result-head { padding-bottom: 6px; border-bottom: 0; }
+.winner-block .win-tiles { margin-top: 6px; }
+.winner-tag {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 0 7px;
+  border-radius: 6px;
+  font-family: "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  letter-spacing: 0;
+  vertical-align: 6px;
+  color: #2a1a06;
+  background: linear-gradient(180deg, #f3d99b, #c39d4f);
+}
+.multi-banner {
+  margin-bottom: 10px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  letter-spacing: 1px;
+  color: #ffe6ad;
+  background: rgba(231, 200, 120, 0.12);
+  border: 1px solid rgba(231, 200, 120, 0.4);
+}
+.ji-chip.charge { border-color: rgba(255, 226, 160, 0.7); color: #ffe6ad; }
+
+/* 一炮多响时把结算面板压紧一点，尽量一屏放下 */
+.panel.multi .result-pattern { font-size: 26px; }
+.panel.multi .result-head { padding-bottom: 4px; }
+.panel.multi .winner-block .win-tiles { margin-top: 4px; }
+.panel.multi .win-tiles .tile { width: 25px; height: 33px; }
+.panel.multi h3 { margin: 10px 0 4px; }
+.panel.multi .score-table { margin-top: 8px; }
+.panel.multi .score-table th, .panel.multi .score-table td { padding: 5px 8px; }
+.panel.multi .ji-row { margin-top: 4px; }
 
 /* 结算窗口尽量一屏放下 */
 #overlay .panel { max-height: 620px; }

@@ -183,22 +183,35 @@
   }
 
   /* ---------------- 鸡 ---------------- */
-  /** 本局三种鸡及各自分值：幺鸡、乌骨鸡、翻牌鸡（翻牌的下一张） */
+  // 常鸡：幺鸡（一条）1 分/张，乌骨鸡（八筒）2 分/张；金鸡（翻牌鸡正好是常鸡）该牌种翻倍。
+  const CHICKEN_BASE = {};
+  CHICKEN_BASE[YAOJI] = 1;
+  CHICKEN_BASE[WUGU] = 2;
+
+  /** 本局的鸡与分值：幺鸡、乌骨鸡、翻牌鸡（翻牌的下一张，撞上常鸡即为金鸡） */
   function chickenSet(flip) {
     const list = [
-      { tile: YAOJI, rate: 1, kind: '幺鸡' },
-      { tile: WUGU, rate: 1, kind: '乌骨鸡' }
+      { tile: YAOJI, rate: CHICKEN_BASE[YAOJI], kind: '幺鸡' },
+      { tile: WUGU, rate: CHICKEN_BASE[WUGU], kind: '乌骨鸡' }
     ];
     if (flip !== null && flip !== undefined) {
       const t = nextTile(flip);
-      if (!list.some((x) => x.tile === t)) list.push({ tile: t, rate: 1, kind: '翻牌鸡' });
-      // 金鸡：翻牌鸡正好是幺鸡 / 乌骨鸡 → 该牌种本局翻倍
-      if (t === YAOJI || t === WUGU) {
-        const item = list.find((x) => x.tile === t);
-        if (item) item.rate = 2;
+      const hit = list.find((x) => x.tile === t);
+      if (hit) {
+        // 金鸡：翻到的牌下一张正好是常鸡 → 该牌种翻倍
+        hit.rate = CHICKEN_BASE[t] * 2;
+        hit.kind = '金鸡';
+      } else {
+        list.push({ tile: t, rate: 1, kind: '翻牌鸡' });
       }
     }
     return list;
+  }
+
+  /** 某种牌本局算几分鸡（不算就是 0） */
+  function chickenRate(chickens, tile) {
+    const hit = (chickens || []).find((x) => x.tile === tile);
+    return hit ? hit.rate : 0;
   }
 
   /** 统计某人（手牌 + 副露 + 自己牌河）的鸡分 */
@@ -214,13 +227,24 @@
     return n;
   }
 
+  /* ---------------- 特殊牌型的加分 ---------------- */
+  // 本作口径：都在牌型分之上一次性加分，不叠倍数
+  const BONUS = {
+    tianhu: 20,    // 天胡：庄家第一摸就胡
+    dihu: 10,      // 地胡：闲家第一巡胡（下家第一摸自摸 / 胡庄家首张）
+    baoting: 3,    // 报听（硬报）后胡牌
+    tianting: 6,   // 天听：起手就听牌并报听（取代报听的 3 分）
+    qianggang: 5,  // 抢杠胡（另由杠家包三家）
+    repao: 1       // 热炮：杠后打出的牌被胡
+  };
+
   return {
     SUITS, CN, YAOJI, WUGU,
     suit, rank, tileName, nextTile,
     createWall, shuffle, counts, sortHand,
     canFormSets, isWinShape, isSevenPairs, allTripletsShape,
     winInfo, isWin, tenpaiTiles, tingValue, canChiPao,
-    chickenSet, chickenPoints,
-    PATTERN_POINTS, PATTERN_NAMES
+    chickenSet, chickenRate, chickenPoints, CHICKEN_BASE,
+    PATTERN_POINTS, PATTERN_NAMES, BONUS
   };
 });

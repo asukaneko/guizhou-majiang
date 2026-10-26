@@ -195,6 +195,89 @@ async function capture() {
       })(); true;
     `);
     await sleep(1200);
+  } else if (shotMode === 'baoting') {
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        g.speed = 0.00001;
+        g.askDiscard = function(){ return new Promise(function(){}); };
+      })(); true;
+    `);
+    await sleep(700);
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        g.phase = 'playing';
+        g.turn = 0;
+        g.scores = [0, 0, 0, 0];
+        g.roundDeltas = [0, 0, 0, 0];
+        g.players.forEach(function (q) { q.discards = []; q.melds = []; q.said = ''; });
+        g.lastDiscard = null;
+        g.players[0].hand = [0,1,2,3,4,5,6,7,8,9,10,11,17,22];
+        g.players[0].justDrawn = 17;
+        g.awaiting = { kind: 'discard', player: 0, self: { hu: null, angang: [], bugang: [] } };
+        g.emitState();
+      })(); true;
+    `);
+    await sleep(600);
+  } else if (shotMode === 'baoting-on') {
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        g.speed = 0.00001;
+        g.askDiscard = function(){ return new Promise(function(){}); };
+      })(); true;
+    `);
+    await sleep(700);
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        g.phase = 'playing';
+        g.turn = 0;
+        g.scores = [0, 0, 0, 0];
+        g.roundDeltas = [0, 0, 0, 0];
+        g.players.forEach(function (q) { q.discards = []; q.melds = []; q.said = ''; });
+        g.lastDiscard = null;
+        const pl = g.players[0];
+        pl.hand = [0,1,2,3,4,5,6,7,8,9,10,11,17,22];
+        pl.justDrawn = 17;
+        pl.tingAtDeal = false;
+        const self = { hu: null, angang: [], bugang: [] };
+        g.awaiting = { kind: 'discard', player: 0, self: self, resolve: function(){} };
+        g.humanTing();
+        pl.hand = [0,1,2,3,4,5,6,7,8,9,10,11,22];
+        g.awaiting = { kind: 'discard', player: 0, self: self, auto: true, ting: true, autoTile: 17 };
+        g.emitState();
+      })(); true;
+    `);
+    await sleep(700);
+  } else if (shotMode === 'multi') {
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        g.speed = 0.00001;
+        g.askDiscard = function(){ return new Promise(function(){}); };
+      })(); true;
+    `);
+    await sleep(700);
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        g.phase = 'playing';
+        g.scores = [0, 0, 0, 0];
+        g.roundDeltas = [0, 0, 0, 0];
+        g.players.forEach(function (q) { q.discards = []; q.melds = []; q.said = ''; });
+        // 两家都听五筒
+        g.players[1].hand = [0,1,2,3,4,5,6,7,8,9,10,11,22];
+        g.players[2].hand = [18,19,20,21,23,9,10,11,0,1,2,26,26];
+        g.players[3].hand = [22,0,1,2,3,4,5,6,7,8,12,13,14];
+        g.players[3].discards = [22];
+        g.lastDiscard = { p: 3, tile: 22 };
+        g.wall = [4, 5, 6];
+        g.settleWin([{ p: 1, winTile: 22 }, { p: 2, winTile: 22 }], { selfDraw: false, from: 3 });
+      })(); true;
+    `);
+    await sleep(1600);
   } else if (shotMode === 'result') {
     const r = await w.webContents.executeJavaScript(`
       (function(){
@@ -208,6 +291,10 @@ async function capture() {
         g.players[0].hand = [0,1,2,3,4,5,6,7,8,18,18];
         g.players[0].melds = [{ type: 'peng', tile: 9, tiles: [9,9,9], from: 2 }];
         g.players[0].discards = [];
+        // 下家 / 对家 都叫牌，上家没叫（手里也没鸡）
+        g.players[1].hand = [0,1,2,3,4,5,6,7,8,9,10,11,22];
+        g.players[2].hand = [18,19,20,21,23,9,10,11,0,1,2,26,26];
+        g.players[3].hand = [3,4,5,12,13,14,19,20,21,24,26,0,1];
         g.wall = [22, 5, 6, 7];
         g.settleWin(0, { selfDraw: true, winTile: 18 });
         return JSON.stringify({ wall: g.wall.length, phase: g.phase });

@@ -78,11 +78,17 @@ test('吃炮通行证', () => {
 test('鸡：幺鸡 / 乌骨鸡 / 翻牌鸡 / 金鸡', () => {
   const set = R.chickenSet(c(W,5));
   assert.deepEqual(set.map((x) => x.tile).sort((a, b) => a - b), [c(W,6), R.YAOJI, R.WUGU].sort((a, b) => a - b));
-  assert.ok(set.every((x) => x.rate === 1));
+  assert.equal(set.find((x) => x.tile === R.YAOJI).rate, 1);
+  assert.equal(set.find((x) => x.tile === R.WUGU).rate, 2);
+  assert.equal(set.find((x) => x.tile === c(W,6)).rate, 1);
 
-  const golden = R.chickenSet(c(TI,9)); // 翻 9 条 → 幺鸡为鸡，金鸡 2 分
+  const golden = R.chickenSet(c(TI,9)); // 翻 9 条 → 翻牌鸡正好是幺鸡，金鸡翻倍 2 分
   const yao = golden.find((x) => x.tile === R.YAOJI);
+  assert.equal(yao.kind, '金鸡');
   assert.equal(yao.rate, 2);
+
+  const goldenWu = R.chickenSet(c(P,7)); // 翻 7 筒 → 翻牌鸡是八筒，金鸡 4 分
+  assert.equal(goldenWu.find((x) => x.tile === R.WUGU).rate, 4);
 
   const pts = R.chickenPoints(
     [R.YAOJI, R.YAOJI, c(P,1)],
@@ -90,8 +96,8 @@ test('鸡：幺鸡 / 乌骨鸡 / 翻牌鸡 / 金鸡', () => {
     [R.WUGU],
     R.chickenSet(c(W,5))
   );
-  // 幺鸡：手牌 2 + 副露 3 = 5；乌骨鸡：牌河 1 → 共 6
-  assert.equal(pts, 6);
+  // 幺鸡：手牌 2 + 副露 3 = 5 分；乌骨鸡：牌河 1 张 ×2 = 2 分 → 共 7
+  assert.equal(pts, 7);
 });
 
 test('Game 可从本地存档恢复四家累计分数', () => {
@@ -261,4 +267,299 @@ test('自动摸打：整局能自己跑完，只在没听牌时才要人操作',
     g.nextDealer = (g.dealer + 1) % 4;
   }
   console.log('自动摸打时仍需手动出牌的次数', manual);
+});
+
+/* ---------------- 报听 / 天听 / 天胡 / 地胡 / 抢杠 / 热炮 / 一炮多响 / 鸡 ---------------- */
+
+const WIN14 = () => handOf([
+  [W, 1], [W, 2], [W, 3], [W, 4], [W, 5], [W, 6], [W, 7], [W, 8], [W, 9],
+  [TI, 1], [TI, 2], [TI, 3], [P, 5], [P, 5]
+]);
+
+const READY14 = () => handOf([
+  [W, 1], [W, 2], [W, 3], [W, 4], [W, 5], [W, 6], [W, 7], [W, 8], [W, 9],
+  [TI, 1], [TI, 2], [TI, 3], [P, 5], [TI, 9]
+]);
+
+test('报听：锁牌、天听判定，出张就是保持听牌的那张', () => {
+  const g = new Game({ dealer: 0 });
+  const pl = g.players[0];
+  pl.hand = R.sortHand(READY14());
+  pl.justDrawn = c(TI, 9);
+  pl.tingAtDeal = true; // 起手 13 张就听牌
+  let resolved = null;
+  g.awaiting = {
+    kind: 'discard', player: 0, self: { hu: null, angang: [], bugang: [] },
+    resolve: (d) => { resolved = d; }
+  };
+  assert.equal(g.canTing(0), true);
+  assert.equal(g.humanTing(), true);
+  assert.equal(pl.tingDeclared, true);
+  assert.equal(pl.tianTing, true, '起手听牌 + 第一巡报听 = 天听');
+  assert.equal(resolved.type, 'discard');
+  assert.equal(resolved.tile, c(TI, 9), '应该打掉刚摸的那张 ');
+  // 报听后不能再杠
+  g.players[0].hand = handOf([[W, 5], [W, 5], [W, 5], [W, 5]]).concat(handOf([[TI, 1], [TI, 1], [TI, 1]]));
+  pl.melds = [];
+  assert.deepEqual(g.selfActions(0).angang, []);
+});
+
+test('报听 / 天听 / 天胡 / 热炮 / 抢杠 的加分', () => {
+  const g = new Game({ dealer: 0 });
+  g.phase = 'playing';
+  g.wall = [];
+  g.players[0].hand = WIN14();
+  const res = g.settleWin([{ p: 0, winTile: null }], { selfDraw: true });
+  // 平胡 1 + 自摸 1 = 2
+  assert.equal(res.winners[0].points, 2);
+
+  const g2 = new Game({ dealer: 0 });
+  g2.phase = 'playing';
+  g2.wall = [];
+  g2.players[0].hand = WIN14();
+  g2.players[0].tingDeclared = true;
+  const baoting = g2.settleWin([{ p: 0, winTile: null }], { selfDraw: true });
+  assert.equal(baoting.winners[0].points, 5); // 1 + 自摸1 + 报听3
+  assert.ok(baoting.winners[0].extra.includes('报听 +3'));
+
+  const g3 = new Game({ dealer: 0 });
+  g3.phase = 'playing';
+  g3.wall = [];
+  g3.players[0].hand = WIN14();
+  g3.players[0].tingDeclared = true;
+  g3.players[0].tianTing = true;
+  const tianting = g3.settleWin([{ p: 0, winTile: null }], { selfDraw: true });
+  assert.equal(tianting.winners[0].points, 8); // 1 + 1 + 天听6
+  assert.ok(tianting.winners[0].extra.includes('天听 +6'));
+
+  const g4 = new Game({ dealer: 0 });
+  g4.phase = 'playing';
+  g4.wall = [];
+  g4.players[0].hand = WIN14();
+  const tianhu = g4.settleWin([{ p: 0, winTile: null }], { selfDraw: true, tianhu: true });
+  assert.equal(tianhu.winners[0].points, 22); // 1 + 1 + 天胡20
+
+  const g5 = new Game({ dealer: 0 });
+  g5.phase = 'playing';
+  g5.wall = [];
+  g5.players[0].hand = WIN14();
+  const repao = g5.settleWin([{ p: 0, winTile: null }], { selfDraw: false, from: 2, repao: true });
+  assert.equal(repao.winners[0].points, 2); // 1 + 热炮1
+  assert.ok(repao.winners[0].extra.includes('热炮 +1'));
+  assert.equal(repao.winDeltas[2], -2);
+});
+
+test('天胡 / 地胡 的判定条件', () => {
+  const g = new Game({ dealer: 0 });
+  g.phase = 'playing';
+  assert.equal(g.isTianHu(0), true);
+  assert.equal(g.isTianHu(1), false);
+  g.players[2].discards = [c(W, 1)];
+  assert.equal(g.isTianHu(0), false, '别人打过牌就不算天胡');
+
+  const d = new Game({ dealer: 0 });
+  d.phase = 'playing';
+  d.discardSeq = 1;
+  assert.equal(d.isDiHu(1, true), true, '下家第一摸自摸 = 地胡');
+  assert.equal(d.isDiHu(1, false, 0), true, '下家胡庄家首张 = 地胡');
+  assert.equal(d.isDiHu(2, true), false, '只有下家赶得上第一巡');
+  d.discardSeq = 2;
+  assert.equal(d.isDiHu(1, true), false);
+});
+
+test('抢杠胡：杠不成立，杠家包三家', async () => {
+  const g = new Game({ speed: 90, dealer: 0 });
+  g.phase = 'playing';
+  g.wall = [];
+  const kong = c(W, 5);
+  // 杠家（下家）：碰过五万，手里还有一张五万
+  g.players[1].hand = handOf([
+    [W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [W, 5]
+  ]);
+  g.players[1].melds = [{ type: 'peng', tile: kong, tiles: [kong, kong, kong], from: 0 }];
+  // 对家：听五万
+  g.players[2].hand = handOf([
+    [W, 1], [W, 2], [W, 3], [W, 4], [W, 6], [TI, 1], [TI, 2], [TI, 3],
+    [P, 1], [P, 2], [P, 3], [P, 8], [P, 8]
+  ]);
+
+  const ok = await g.doKong(1, 'bugang', kong);
+  assert.equal(ok, false, '被抢杠时杠不成立');
+  assert.equal(g.players[1].melds[0].type, 'peng');
+  assert.equal(g.result.robKong, true);
+  assert.equal(g.result.winner, 2);
+  // 平胡 1 + 抢杠 5 = 6，杠家包三家 → 18
+  assert.equal(g.result.winners[0].points, 6);
+  assert.equal(g.result.winDeltas[1], -18);
+  assert.equal(g.result.winDeltas[2], 18);
+  assert.equal(g.kongLog.length, 0, '抢杠时豆不成立');
+});
+
+test('热炮：杠后打出的牌被别人胡', () => {
+  const g = new Game({ dealer: 0 });
+  g.phase = 'playing';
+  g.players[2].hand = handOf([[W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [W, 5], [W, 5], [P, 9], [P, 9]]);
+  g.lastKongBy = 2;
+  g.discard(2, c(P, 9));
+  assert.equal(g.discardHot, true);
+  assert.equal(g.lastKongBy, -1);
+  // 下一张普通出牌不算热炮
+  g.players[2].hand = handOf([[W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [W, 5], [W, 5], [P, 9], [P, 9]]);
+  g.discard(2, c(W, 1));
+  assert.equal(g.discardHot, false);
+});
+
+test('一炮多响：一张牌两家胡，点炮者各赔一份', async () => {
+  const g = new Game({ speed: 90, dealer: 0 });
+  g.phase = 'playing';
+  g.wall = [];
+  const tile = c(W, 5);
+  const hand = handOf([[W, 1], [W, 2], [W, 3], [W, 4], [W, 6], [TI, 1], [TI, 2], [TI, 3], [P, 5], [P, 5]]);
+  for (const p of [1, 2]) {
+    g.players[p].hand = hand.slice();
+    g.players[p].melds = [{ type: 'gang', tile: c(P, 9), tiles: [c(P, 9), c(P, 9), c(P, 9), c(P, 9)], from: 3 }];
+  }
+  // 上家打出五万
+  g.players[3].hand = handOf([[W, 5], [W, 7], [TI, 4], [TI, 5], [TI, 6], [P, 1], [P, 3], [P, 4], [P, 6], [P, 7], [P, 9], [W, 9], [TI, 9]]);
+  g.discard(3, tile);
+
+  const claim = await g.resolveClaims(3, tile);
+  assert.equal(claim.type, 'hu');
+  assert.deepEqual(claim.winners.map((w) => w.p), [1, 2]);
+
+  const res = g.settleWin(claim.winners, { selfDraw: false, from: 3 });
+  assert.equal(res.winners.length, 2);
+  assert.equal(res.winDeltas[3], -2, '点炮者赔两份');
+  assert.equal(res.winDeltas[1], 1);
+  assert.equal(res.winDeltas[2], 1);
+});
+
+test('冲锋鸡：本局第一张打出的幺鸡算双倍', () => {
+  const g = new Game({ dealer: 0 });
+  g.phase = 'playing';
+  g.wall = [];
+  // 玩家 3 打出幺鸡，手里还剩一张幺鸡
+  g.players[3].hand = handOf([
+    [W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [P, 5], [P, 5], [W, 9], [TI, 9], [TI, 1]
+  ]);
+  g.discard(3, c(TI, 1));
+  assert.ok(g.firstChicken);
+  assert.equal(g.firstChicken.p, 3);
+  assert.equal(g.firstChicken.taken, false);
+
+  // 玩家 1 胡牌，玩家 3 的鸡：手里 1 张 + 牌河冲锋鸡 1 张 ×2 = 3 分
+  g.players[1].hand = WIN14();
+  const res = g.settleWin([{ p: 1, winTile: null }], { selfDraw: true });
+  assert.equal(res.chickenCount[3], 3);
+  assert.equal(res.charge.p, 3);
+});
+
+test('责任鸡：冲锋鸡被碰走，打者赔一个豆', () => {
+  const g = new Game({ dealer: 0 });
+  g.phase = 'playing';
+  g.players[0].hand = handOf([
+    [W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [P, 5], [P, 5], [W, 9], [TI, 9], [TI, 1]
+  ]);
+  g.players[1].hand = handOf([
+    [TI, 1], [TI, 1], [W, 4], [W, 5], [W, 6], [P, 1], [P, 4], [P, 7], [P, 9], [W, 8], [W, 9], [TI, 5], [TI, 7]
+  ]);
+  g.discard(0, c(TI, 1));
+  const before = g.scores.slice();
+  g.doPeng(1, c(TI, 1), 0);
+  assert.equal(g.firstChicken.taken, true);
+  assert.equal(g.scores[0], before[0] - 3, '打冲锋鸡的人赔 3');
+  assert.equal(g.scores[1], before[1] + 3);
+  assert.equal(g.penaltyLog.length, 1);
+  assert.equal(g.penaltyLog[0].kind, '责任鸡');
+});
+
+test('包鸡：没叫牌的人，鸡反过来赔给胡牌的人', () => {
+  const g = new Game({ dealer: 0 });
+  g.phase = 'playing';
+  g.wall = [];
+  // 玩家 1 胡牌；玩家 2 叫牌（听牌）；玩家 3 没叫，手里 2 张八筒 = 4 分
+  g.players[1].hand = WIN14();
+  g.players[2].hand = handOf([[W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [P, 5], [P, 5], [W, 7], [W, 9]]);
+  g.players[3].hand = handOf([[W, 4], [W, 6], [W, 8], [TI, 4], [TI, 6], [TI, 8], [P, 8], [P, 8], [P, 4], [P, 6], [W, 2], [TI, 2], [P, 2]]);
+
+  const res = g.settleWin([{ p: 1, winTile: null }], { selfDraw: true });
+  assert.equal(res.isTing[3], false);
+  assert.equal(res.chickenCount[3], 4);
+  assert.ok(res.baoji.some((b) => b.p === 3 && b.to === 1 && b.points === 4));
+  // 玩家 3 既要付玩家 1 / 2 的鸡，也要把自己的 4 分赔给赢家
+  assert.ok(res.chickenDeltas[3] < 0);
+  assert.equal(res.chickenDeltas.reduce((a, b) => a + b, 0), 0);
+});
+
+test('整局模拟（含新规则）：分数仍为零和', { timeout: 120000 }, async () => {
+  const AI = require('../src/js/ai.js');
+  const g = new Game({ speed: 90, dealer: 0 });
+  const errors = [];
+  g.on('error', (e) => errors.push(e));
+  g.on('prompt', (a) => {
+    setTimeout(() => {
+      if (g.awaiting !== a) return;
+      if (a.kind === 'claim') {
+        if (a.options.includes('hu')) { g.humanRespond('hu'); return; }
+        g.humanRespond('pass');
+        return;
+      }
+      if (a.self && a.self.hu) { g.humanHu(); return; }
+      g.humanDiscard(AI.chooseDiscard(g.players[0].hand, g.players[0].melds));
+    }, 0);
+  });
+  let resolveEnd = null;
+  g.on('roundEnd', () => { if (resolveEnd) { const r = resolveEnd; resolveEnd = null; r(); } });
+
+  for (let i = 0; i < 6; i++) {
+    const done = new Promise((r) => { resolveEnd = r; });
+    g.startRound();
+    await done;
+    const total = g.scores.reduce((a, b) => a + b, 0);
+    assert.equal(total, 0, `第 ${i + 1} 局后总分守恒`);
+    assert.equal(errors.length, 0, '不应出现对局异常');
+    if (!g.result.draw) {
+      assert.ok(Array.isArray(g.result.winners) && g.result.winners.length >= 1);
+      assert.equal(g.result.winDeltas.reduce((a, b) => a + b, 0), 0);
+    }
+    g.nextDealer = (g.dealer + 1) % 4;
+  }
+});
+
+test('报听之后整局不再要求手动出牌（锁牌自动摸打）', { timeout: 120000 }, async () => {
+  const AI = require('../src/js/ai.js');
+  const g = new Game({ speed: 90, dealer: 1 });
+  let declared = false;
+  let promptsAfter = 0;
+  const errors = [];
+  g.on('error', (e) => errors.push(e));
+  g.on('ting', () => { declared = true; });
+
+  g.on('prompt', (a) => {
+    setTimeout(() => {
+      if (g.awaiting !== a) return;
+      if (a.kind === 'claim') {
+        if (a.options.includes('hu')) { g.humanRespond('hu'); return; }
+        g.humanRespond('pass');
+        return;
+      }
+      if (!declared && g.canTing(0)) { g.humanTing(); return; }
+      if (declared) promptsAfter++;
+      if (a.self && a.self.hu) { g.humanHu(); return; }
+      g.humanDiscard(AI.chooseDiscard(g.players[0].hand, g.players[0].melds));
+    }, 0);
+  });
+
+  let resolveEnd = null;
+  g.on('roundEnd', () => { if (resolveEnd) { const r = resolveEnd; resolveEnd = null; r(); } });
+
+  for (let i = 0; i < 8 && !declared; i++) {
+    const done = new Promise((r) => { resolveEnd = r; });
+    g.startRound();
+    await done;
+    assert.equal(errors.length, 0, '不应出现对局异常');
+    g.nextDealer = (g.dealer + 1) % 4;
+  }
+  assert.equal(declared, true, '八局之内总该听得上一把');
+  assert.equal(promptsAfter, 0, '报听后不该再弹手动出牌提示');
 });

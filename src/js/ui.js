@@ -143,6 +143,7 @@
     const score = game.scores[id];
     const badges = [];
     if (game.dealer === id) badges.push('<span class="badge zhuang">庄</span>');
+    if (p.tingDeclared) badges.push(`<span class="badge baoting">${p.tianTing ? '天听' : '报听'}</span>`);
     if (id === 0 && game.autoPlay) badges.push('<span class="badge auto">自动</span>');
     if (p.said) badges.push(`<span class="badge said">${p.said}</span>`);
     if (id === 0) {
@@ -263,7 +264,9 @@
   function turnLabel() {
     if (game.phase === 'ended') return '本局结束';
     if (game.awaiting && game.awaiting.kind === 'claim') return '等你决定 · 碰 / 杠 / 胡';
-    if (game.awaiting && game.awaiting.auto) return '自动摸打中';
+    if (game.awaiting && game.awaiting.auto) {
+      return game.awaiting.ting ? '报听中' : '自动摸打中';
+    }
     const p = game.players[game.turn];
     if (!p) return '';
     return game.turn === 0 ? '轮到你出牌' : `轮到 ${p.name}`;
@@ -286,18 +289,23 @@
     let html = '';
     if (a && a.kind === 'discard' && a.player === 0) {
       if (a.auto) {
-        html += `<div class="auto-hint">自动摸打 · ${a.autoTile != null ? '打出 ' + TN(a.autoTile) : '自摸'}</div>`;
+        html += `<div class="auto-hint">${a.ting ? '报听' : '自动摸打'} · ${a.autoTile != null ? '打出 ' + TN(a.autoTile) : '自摸'}</div>`;
       } else {
         const s = a.self || {};
         if (s.hu) html += `<button class="action-btn hu" data-act="hu">胡 ${s.hu.name}</button>`;
         (s.angang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="angang" data-tile="${t}">暗杠 ${TN(t)}</button>`; });
         (s.bugang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="bugang" data-tile="${t}">补杠 ${TN(t)}</button>`; });
-        if (game.autoPlay) html += '<div class="auto-hint">自动摸打待命 · 还没听牌，先手动打一张</div>';
+        if (game.canTing(0)) html += '<button class="action-btn ting" data-act="ting">报听</button>';
+        if (game.autoPlay && !game.autoDecision(0, a.self)) {
+          html += '<div class="auto-hint">自动摸打待命 · 还没听牌，先手动打一张</div>';
+        }
       }
     } else if (a && a.kind === 'claim') {
       const source = game.players[a.from] ? game.players[a.from].name : '对方';
-      html += `<div class="claim-notice">${source} 打出 <b>${TN(a.tile)}</b></div>`;
-      if (a.options.includes('hu')) html += `<button class="action-btn hu" data-act="claim-hu">胡 ${a.info ? a.info.name : ''}</button>`;
+      html += a.rob
+        ? `<div class="claim-notice">${source} 补杠 <b>${TN(a.tile)}</b> · 可以抢杠</div>`
+        : `<div class="claim-notice">${source} 打出 <b>${TN(a.tile)}</b></div>`;
+      if (a.options.includes('hu')) html += `<button class="action-btn hu" data-act="claim-hu">${a.rob ? '抢杠胡' : '胡'} ${a.info ? a.info.name : ''}</button>`;
       if (a.options.includes('peng')) html += `<button class="action-btn peng" data-act="claim-peng">碰 ${TN(a.tile)}</button>`;
       if (a.options.includes('gang')) html += `<button class="action-btn gang" data-act="claim-gang">杠 ${TN(a.tile)}</button>`;
       html += '<button class="action-btn pass" data-act="claim-pass">过</button>';
@@ -419,26 +427,53 @@
 
   function resultHtml(res) {
     if (res.draw) return drawHtml(res);
-    const info = res.info || { name: '胡牌', points: res.points };
-    const fromName = res.selfDraw ? '自摸' : `${game.players[res.from].name} 点炮`;
-    const melds = res.melds.map((m) => `<div class="meld-inline">${m.tiles.map(tileMini).join('')}</div>`).join('');
-    const handTiles = res.hand.map((t) => `<div class="tile${res.winTile === t ? ' win' : ''}">${T.face(t)}</div>`).join('');
+    const winners = res.winners || [{
+      p: res.winner, winTile: res.winTile, selfDraw: res.selfDraw, from: res.from,
+      hand: res.hand, melds: res.melds, info: res.info, points: res.points, extra: res.extra || []
+    }];
+    const isWinner = (i) => winners.some((w) => w.p === i);
+    const multi = winners.length > 1;
+
+    const blocks = winners.map((w) => {
+      const info = w.info || { name: '胡牌', points: w.points };
+      const fromName = w.selfDraw ? '自摸'
+        : res.robKong ? `抢杠（${game.players[w.from].name} 补杠）`
+          : `${game.players[w.from].name} 点炮`;
+      const melds = w.melds.map((m) => `<div class="meld-inline">${m.tiles.map(tileMini).join('')}</div>`).join('');
+      const handTiles = w.hand.map((t) => `<div class="tile${w.winTile === t ? ' win' : ''}">${T.face(t)}</div>`).join('');
+      return `<div class="winner-block">
+        <div class="result-head">
+          <div>
+            <div class="result-pattern">${multi ? `<span class="winner-tag">${game.players[w.p].name}</span>` : ''}${info.name}</div>
+            <div class="sub" style="margin:0">${fromName}</div>
+          </div>
+          <div class="result-points"><strong>${w.points}</strong><span>胡牌分${w.extra && w.extra.length ? '（' + w.extra.join('，') + '）' : ''}</span></div>
+        </div>
+        <div class="win-tiles">${handTiles}${melds}</div>
+      </div>`;
+    }).join('');
+
+    const banner = multi
+      ? `<div class="multi-banner">一炮 ${winners.length} 响 · ${game.players[winners[0].from].name} 一家赔 ${winners.length} 份</div>`
+      : '';
 
     const chickenChips = res.chickens.map((c) =>
-      `<span class="ji-chip">${tileMini(c.tile)}${c.kind} ${c.rate} 分/张</span>`).join('');
+      `<span class="ji-chip">${tileMini(c.tile)}${c.kind} ${c.rate} 分/张</span>`).join('') +
+      (res.charge ? `<span class="ji-chip charge">${tileMini(res.charge.tile)}冲锋鸡 ×2（${game.players[res.charge.p].name}）</span>` : '');
 
     const rows = game.players.map((p, i) => {
       const d = res.deltas[i];
-      const state = i === res.winner ? '胡牌' : (res.isTing[i] ? '叫牌' : '未叫');
+      const state = isWinner(i) ? '胡牌' : (res.isTing[i] ? '叫牌' : '未叫');
       const n = res.chickenCount[i];
-      const jiText = res.isTing[i] ? `${n} 只` : (n ? `${n} 只<i>（未叫不计）</i>` : '0 只');
+      const jiText = res.isTing[i] ? `${n} 分` : (n ? `${n} 分<i>（包鸡）</i>` : '0');
 
-      // 收支明细：胡 / 豆 / 鸡 三笔
+      // 收支明细：胡 / 豆 · 责任鸡 / 鸡
       const parts = [];
       const w = res.winDeltas[i];
       if (w) parts.push(`胡 ${w > 0 ? '+' : ''}${w}`);
       let kong = 0;
       res.kongLog.forEach((k) => { kong += k.deltas[i]; });
+      (res.penaltyLog || []).forEach((k) => { kong += k.deltas[i]; });
       if (kong) parts.push(`豆 ${kong > 0 ? '+' : ''}${kong}`);
       const c = res.chickenDeltas[i];
       if (c) parts.push(`鸡 ${c > 0 ? '+' : ''}${c}`);
@@ -455,31 +490,33 @@
       </tr>`;
     }).join('');
 
-    const kongRows = res.kongLog.length
-      ? `<h3>豆（杠）</h3><p class="note">${res.kongLog.map((k) => {
-          const who = game.players[k.p].name;
-          const kind = k.type === 'angang' ? '暗杠' : k.type === 'bugang' ? '补杠' : '明杠';
-          return `${who} ${kind} ${TN(k.tile)}`;
-        }).join('　·　')}</p>`
+    const kongNotes = res.kongLog.map((k) => {
+      const who = game.players[k.p].name;
+      const kind = k.type === 'angang' ? '暗杠' : k.type === 'bugang' ? '补杠' : '明杠';
+      return `${who} ${kind} ${TN(k.tile)}`;
+    }).concat((res.penaltyLog || []).map((k) =>
+      `${game.players[k.p].name} 冲锋鸡被 ${game.players[k.to].name} 拿走，责任鸡赔 ${k.points} 分`
+    ));
+    const kongRows = kongNotes.length
+      ? `<h3>豆 / 责任鸡</h3><p class="note">${kongNotes.join('　·　')}</p>`
+      : '';
+
+    const baojiText = (res.baoji && res.baoji.length)
+      ? `<p class="note">包鸡：${res.baoji.map((b) => `${game.players[b.p].name} 没叫牌，${b.points} 分赔给 ${game.players[b.to].name}`).join('；')}</p>`
       : '';
 
     const flipText = res.flip != null
       ? `<div class="ji-flip">翻牌 ${tileMini(res.flip)} <span>${TN(res.flip)}</span> → 翻牌鸡 ${TN(R.nextTile(res.flip))}</div>`
       : '<div class="ji-flip">牌墙已空，未翻牌（只有幺鸡 / 乌骨鸡算鸡）</div>';
 
-    return `<div class="panel">
-      <div class="result-head">
-        <div>
-          <div class="result-pattern">${info.name}</div>
-          <div class="sub" style="margin:0">${fromName}　·　${game.players[res.winner].name}</div>
-        </div>
-        <div class="result-points"><strong>${res.points}</strong><span>胡牌分${res.extra.length ? '（' + res.extra.join('，') + '）' : ''}</span></div>
-      </div>
-      <div class="win-tiles">${handTiles}${melds}</div>
+    return `<div class="panel${multi ? ' multi' : ''}">
+      ${banner}
+      ${blocks}
       <h3>捉鸡</h3>
       ${flipText}
       <div class="ji-row" style="margin-top:8px">${chickenChips}</div>
-      <p class="note" style="margin-top:6px">只有叫牌的人收鸡，按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份。</p>
+      <p class="note" style="margin-top:6px">叫牌的人按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份；没叫牌的人（包鸡）反而把自己的鸡赔给胡牌的人。</p>
+      ${baojiText}
       ${kongRows}
       <h3>本局结算</h3>
       <table class="score-table">
@@ -545,8 +582,20 @@
       <li>自摸 <span class="hl">+1</span>，杠上花 <span class="hl">+1</span>；清一色按「手牌 + 副露」整体同门判定</li>
     </ul>
 
+    <h3>特殊牌型加分（在牌型分之上相加）</h3>
+    <ul>
+      <li>天胡 <span class="hl">+20</span>：庄家配牌后第一摸就自摸</li>
+      <li>地胡 <span class="hl">+10</span>：闲家第一巡就胡（下家第一摸自摸，或胡庄家打出的第一张）</li>
+      <li>报听 <span class="hl">+3</span>、天听 <span class="hl">+6</span>：主动报听 / 起手就听牌并报听</li>
+      <li>抢杠胡 <span class="hl">+5</span>，另由杠家包三家（赔三份）</li>
+      <li>热炮 <span class="hl">+1</span>：杠后打出的那张牌被别人胡</li>
+    </ul>
+
+    <h3>报听 / 天听</h3>
+    <p>轮到你出牌且手牌听牌时，可以点「<span class="hl">报听</span>」：系统替你打出那张保持听牌的牌，之后手牌锁定——不能再碰、不能杠，摸什么打什么，见胡就胡。起手 13 张就听牌、并且在第一巡报听，算<span class="hl">天听</span>。</p>
+
     <h3>吃炮通行证</h3>
-    <p>有豆（杠过）→ 平胡也能吃炮；没有豆 → 只有 5 分以上的牌型才能吃炮，平胡只能自摸。</p>
+    <p>有豆（杠过）→ 平胡也能吃炮；没有豆 → 只有 5 分以上的牌型才能吃炮，平胡只能自摸。抢杠胡不受此限。</p>
 
     <h3>豆（杠）</h3>
     <ul>
@@ -554,12 +603,22 @@
       <li>豆分当场结算，直接计入总分</li>
     </ul>
 
+    <h3>抢杠胡 / 热炮 / 一炮多响</h3>
+    <ul>
+      <li><span class="hl">抢杠胡</span>：别人补杠的那张牌正好是你听的牌 → 你可以抢杠，杠不成立，杠家包三家。</li>
+      <li><span class="hl">热炮</span>：杠完后打出的第一张牌被别人胡，胡牌分 +1。</li>
+      <li><span class="hl">一炮多响</span>：一张牌同时被两家以上胡，所有人都算胡，点炮者各赔一份，鸡分别结算。</li>
+    </ul>
+
     <h3>鸡</h3>
     <ul>
-      <li>幺鸡（一条）、乌骨鸡（八筒）整局都算鸡，各 1 分/张</li>
-      <li>翻牌鸡：胡牌后翻牌墙第 1 张，翻到牌的下一张为鸡（翻 5 万 → 6 万；翻 9 条 → 幺鸡）</li>
-      <li>金鸡：翻牌鸡正好是幺鸡 / 乌骨鸡时，该牌种本局 2 分/张</li>
-      <li>只有<span class="hl">叫牌</span>（听牌）的人收鸡，按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份；未叫家的鸡不算</li>
+      <li>幺鸡（一条）1 分/张，乌骨鸡（八筒）2 分/张，整局都算</li>
+      <li>翻牌鸡：胡牌后翻牌墙第 1 张，翻到牌的下一张为鸡（翻 5 万 → 6 万；翻 9 条 → 幺鸡），1 分/张</li>
+      <li><span class="hl">金鸡</span>：翻牌鸡正好是幺鸡 / 乌骨鸡时，该牌种翻倍（幺鸡 2 分、八筒 4 分）</li>
+      <li><span class="hl">冲锋鸡</span>：本局第一张被打出的幺鸡 / 八筒，计双倍</li>
+      <li><span class="hl">责任鸡</span>：冲锋鸡被别人碰 / 杠走 → 打牌的人赔一个豆（3 分）给拿走的人，这张不再翻倍</li>
+      <li><span class="hl">包鸡</span>：胡牌时没叫牌的人，自己手里的鸡反过来赔给胡牌的人</li>
+      <li>叫牌（听牌）的人按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份</li>
     </ul>
 
     <h3>黄庄</h3>
@@ -568,8 +627,7 @@
     <h3>自动摸打</h3>
     <p>右上角「自动摸打」开关（快捷键 <span class="hl">A</span>）：听牌后自动替你摸打，打出一张仍保持听牌的牌，能自摸就直接胡；碰、杠、吃炮胡仍然由你决定。没听牌时照常提示你手动出牌。</p>
 
-    <h3>本版未实现</h3>
-    <p class="note">报听 / 天听 / 天胡地胡 / 抢杠胡 / 热炮 / 一炮多响 / 冲锋鸡 / 责任鸡 / 包鸡。规则口径参考公开的贵阳捉鸡资料，够日常单机开一桌。</p>
+    <p class="note">规则口径参考公开的贵阳捉鸡资料（腾讯欢乐麻将的四类鸡、贵州麻将的包牌 / 一炮多响 / 硬报软听），加分与倍数是为单机对局定的固定值，够日常开一桌。</p>
 
     <div class="panel-actions"><button class="btn-primary" data-act="close-rules">知道了</button></div>
   </div>`;
@@ -596,6 +654,7 @@
       if (!btn) return;
       const act = btn.dataset.act;
       if (act === 'hu') game.humanHu();
+      else if (act === 'ting') game.humanTing();
       else if (act === 'angang' || act === 'bugang') game.humanGang(act, +btn.dataset.tile);
       else if (act === 'claim-hu' || act === 'claim-peng' || act === 'claim-gang') {
         game.humanRespond(act.replace('claim-', ''));
@@ -722,6 +781,10 @@
       if (blockedShown) return;
       blockedShown = true;
       toast('平胡没有豆，不能吃炮，只能自摸');
+    });
+    game.on('ting', (info) => {
+      Sound.tone(1046, 0.18, 'sine', 0.1);
+      toast(info.tianTing ? '天听！起手就听牌，胡牌 +6' : '已报听：手牌锁定，摸什么打什么', 2600);
     });
     game.on('roundEnd', (res) => {
       if (!res.draw) Sound.hu();
