@@ -563,3 +563,120 @@ test('报听之后整局不再要求手动出牌（锁牌自动摸打）', { tim
   assert.equal(declared, true, '八局之内总该听得上一把');
   assert.equal(promptsAfter, 0, '报听后不该再弹手动出牌提示');
 });
+
+/* ---------------- 幺筒麻将（一筒作财神） ---------------- */
+
+const YT = c(P, 1);   // 一筒 / 幺筒 = 18
+
+/** 13 张互不搭的散牌，加一张财神也胡不了（用来测「不能碰杠」） */
+const junk13 = () => handOf([
+  [W, 1], [W, 3], [W, 5], [W, 7], [W, 9],
+  [TI, 2], [TI, 4], [TI, 6], [TI, 8],
+  [P, 1], [P, 3], [P, 5], [P, 7]
+]);
+
+// 一筒替七筒，凑成五六七筒
+const SOFT14 = () => handOf([
+  [W, 1], [W, 2], [W, 3], [W, 4], [W, 5], [W, 6],
+  [P, 1], [P, 2], [P, 3], [P, 5], [P, 6], [P, 1],
+  [TI, 9], [TI, 9]
+]);
+
+// 一筒全当真一筒用：123万 456万 123筒 123筒 99条
+const HARD14 = () => handOf([
+  [W, 1], [W, 2], [W, 3], [W, 4], [W, 5], [W, 6],
+  [P, 1], [P, 2], [P, 3], [P, 1], [P, 2], [P, 3],
+  [TI, 9], [TI, 9]
+]);
+
+test('幺筒模式：一筒能替任意牌，经典模式不能', () => {
+  const soft = R.winInfo(SOFT14(), [], 'yitong');
+  assert.ok(soft, '幺筒模式应该能胡');
+  assert.equal(soft.hard, false);
+  assert.equal(soft.joker, 1);
+  assert.equal(soft.hardBonus, 0);
+  assert.equal(R.winInfo(SOFT14(), [], 'classic'), null, '经典模式不吃替身');
+
+  const hard = R.winInfo(HARD14(), [], 'yitong');
+  assert.ok(hard);
+  assert.equal(hard.hard, true);
+  assert.equal(hard.points, 1);
+  assert.equal(hard.hardBonus, R.BONUS.hardHu);
+  R.setMode('classic');
+});
+
+test('幺筒模式：听牌会多出一筒（替身补张），经典模式不会', () => {
+  const h = handOf([
+    [W, 1], [W, 2], [W, 3], [W, 4], [W, 5], [W, 6],
+    [P, 1], [P, 2], [P, 3], [P, 5], [P, 6], [TI, 9], [TI, 9]
+  ]);
+  assert.deepEqual(R.tenpaiTiles(h, [], 'classic'), [c(P, 4), c(P, 7)]);
+  const waits = R.tenpaiTiles(h, [], 'yitong');
+  assert.deepEqual(waits, [YT, c(P, 4), c(P, 7)]);
+  assert.ok(R.tingValue(h, [], 'yitong').points > 0);
+  R.setMode('classic');
+});
+
+test('幺筒不能碰、不能杠', async () => {
+  const g = new Game({ dealer: 0, mode: 'yitong' });
+  g.phase = 'playing';
+  // 手里四张一筒也不弹暗杠
+  g.players[0].hand = R.sortHand(junk13().slice(0, 10).concat([YT, YT, YT, YT]));
+  const self = g.selfActions(0);
+  assert.equal(self.angang.length, 0, '幺筒不能暗杠');
+
+  // 别人打出幺筒，手里两张也不能碰
+  g.players[1].hand = R.sortHand(junk13().slice(2, 13).concat([YT, YT]));
+  const claim = await g.resolveClaims(0, YT);
+  assert.equal(claim, null, '幺筒既不能碰也不能杠');
+  R.setMode('classic');
+});
+
+test('冲幺筒：第一张向三家各收 5 分，第二张各收 3 分，第三张不再收', () => {
+  const g = new Game({ dealer: 0, mode: 'yitong' });
+  g.phase = 'playing';
+  g.players[1].hand = R.sortHand(junk13().slice(0, 10).concat([YT, YT, YT]));
+  g.discard(1, YT);
+  assert.deepEqual(g.scores, [-5, 15, -5, -5]);
+  g.discard(1, YT);
+  assert.deepEqual(g.scores, [-8, 24, -8, -8]);
+  g.discard(1, YT);
+  assert.deepEqual(g.scores, [-8, 24, -8, -8], '第三张没有冲分了');
+  assert.equal(g.penaltyLog.length, 2);
+  assert.equal(g.penaltyLog[0].kind, '冲幺筒');
+  assert.equal(g.penaltyLog[0].points, 5);
+  assert.equal(g.penaltyLog[1].points, 3);
+  assert.equal(g.scores.reduce((a, b) => a + b, 0), 0, '冲幺筒零和');
+  R.setMode('classic');
+});
+
+test('幺筒结算：硬胡 +5 进总分，本模式不捉鸡', () => {
+  const g = new Game({ dealer: 0, mode: 'yitong' });
+  g.phase = 'playing';
+  g.wall = [];
+  g.players[0].hand = R.sortHand(HARD14());
+  const res = g.settleWin(0, { selfDraw: true, winTile: null });
+  assert.equal(res.mode, 'yitong');
+  assert.equal(res.chickens.length, 0, '没有鸡');
+  assert.equal(res.winners[0].hard, true);
+  // 平胡 1 + 自摸 1 + 硬胡 5
+  assert.equal(res.winners[0].points, 1 + 1 + R.BONUS.hardHu);
+  assert.equal(res.winDeltas.reduce((a, b) => a + b, 0), 0);
+  assert.equal(g.scores[0], (1 + 1 + R.BONUS.hardHu) * 3);
+  assert.equal(res.chickenDeltas.reduce((a, b) => a + b, 0), 0);
+  R.setMode('classic');
+});
+
+test('玩法切换：两套规则各算各的', () => {
+  const g1 = new Game({ dealer: 0, mode: 'yitong' });
+  assert.equal(g1.mode.id, 'yitong');
+  assert.equal(R.currentMode().id, 'yitong');
+  assert.equal(R.chickenSet(0).length, 0, '幺筒模式没有鸡');
+
+  const g2 = new Game({ dealer: 0 });
+  assert.equal(g2.mode.id, 'classic');
+  assert.equal(R.currentMode().id, 'classic');
+  assert.equal(R.chickenSet(0).length, 3, '经典模式：幺鸡 + 乌骨鸡 + 翻牌鸡');
+  assert.ok(R.MODES.classic && R.MODES.yitong && R.MODE_ORDER.length === 2);
+});
+

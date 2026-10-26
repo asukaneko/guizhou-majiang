@@ -12,9 +12,12 @@
   };
 
   /** 牌形评分：刻子 > 顺子 > 对子 > 两面/嵌张 */
-  function shapeScore(hand) {
+  function shapeScore(hand, mode) {
+    const M = R.resolveMode(mode);
     const c = R.counts(hand);
     let score = 0;
+    // 财神（幺筒）本身很值钱，别当废牌算
+    if (M.wild !== null && M.wild !== undefined) score += c[M.wild] * 7;
     for (let i = 0; i < 27; i++) {
       while (c[i] >= 3) { score += 12; c[i] -= 3; }
     }
@@ -49,22 +52,25 @@
     return n;
   }
 
-  function chooseDiscard(hand, melds) {
+  function chooseDiscard(hand, melds, mode) {
+    const M = R.resolveMode(mode);
     const uniq = [...new Set(hand)];
-    const keepTing = uniq.filter((t) => R.tenpaiTiles(removeOne(hand, t), melds).length > 0);
+    const keepTing = uniq.filter((t) => R.tenpaiTiles(removeOne(hand, t), melds, M).length > 0);
     const pool = keepTing.length ? keepTing : uniq;
     let best = pool[0], bestScore = -Infinity;
     for (const t of pool) {
       const rest = removeOne(hand, t);
-      let s = shapeScore(rest);
+      let s = shapeScore(rest, M);
       // 听牌张数多的优先
-      const waits = R.tenpaiTiles(rest, melds).length;
+      const waits = R.tenpaiTiles(rest, melds, M).length;
       s += waits * 1.5;
       // 打出去越孤立越好
       s -= isolationBonus(hand, t) * 0.35;
       // 边张（1/9）先走
       const r = R.rank(t);
       if (r === 1 || r === 9) s += 0.4;
+      // 幺筒是财神，打出去还要赔分，尽量留着
+      if (R.isWildTile(t, M)) s -= 12;
       s += Math.random() * 0.5;
       if (s > bestScore) { bestScore = s; best = t; }
     }

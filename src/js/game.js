@@ -26,6 +26,8 @@
     constructor(opts) {
       opts = opts || {};
       this.speed = opts.speed || 1;
+      this.mode = opts.mode ? R.resolveMode(opts.mode) : R.MODES.classic;
+      R.setMode(this.mode);   // 胡牌判定 / 听牌 / 鸡 都跟着当前模式走
       this.handlers = {};
       this.roundNo = opts.roundNo || 1;
       this.dealer = opts.dealer != null ? opts.dealer : ((Math.random() * 4) | 0);
@@ -57,6 +59,7 @@
       this.discardHot = false;   // 刚打出的这张是不是杠后打出的
       this.lastKongBy = -1;
       this.firstChicken = null;  // 冲锋鸡 {p, tile, index, taken}
+      this.chongCount = 0;       // 冲幺筒：本局已经打出几张幺筒
       this.result = null;
       this.log = [];
     }
@@ -96,6 +99,7 @@
       this.discardHot = false;
       this.lastKongBy = -1;
       this.firstChicken = null;
+      this.chongCount = 0;
       this.log = [];
       this.wall = R.shuffle(R.createWall());
       for (const p of this.players) {
@@ -228,12 +232,38 @@
       this.discardHot = this.lastKongBy === p;
       if (this.lastKongBy === p) this.lastKongBy = -1;
       // 冲锋鸡：本局第一张被打出的幺鸡 / 乌骨鸡
-      if (!this.firstChicken && (tile === R.YAOJI || tile === R.WUGU)) {
+      if (this.mode.chickens && !this.firstChicken && (tile === R.YAOJI || tile === R.WUGU)) {
         this.firstChicken = { p, tile, index: pl.discards.length - 1, taken: false };
         this.note(`冲锋鸡：${pl.name} 打出 ${R.tileName(tile)}`);
       }
+      // 冲幺筒：财神被扔出来要赔分，赔率逐张递减
+      if (this.mode.wild !== null && this.mode.wild !== undefined && tile === this.mode.wild) {
+        this.chongYitong(p);
+      }
       this.emit('discard', { p, tile });
       this.emitState();
+    }
+
+    /** 打出一张幺筒：本局第 1 张向其他三家各收 5 分，第 2 张各收 3 分，之后不收 */
+    chongYitong(p) {
+      const idx = this.chongCount++;
+      const pts = R.CHONG_POINTS[idx] || 0;
+      if (!pts) {
+        this.note(`${this.players[p].name} 又打一张幺筒（已经没有冲分可拿）`);
+        return null;
+      }
+      const deltas = [0, 0, 0, 0];
+      deltas[p] += pts * 3;
+      for (let i = 0; i < 4; i++) if (i !== p) deltas[i] -= pts;
+      this.applyDeltas(deltas);
+      const entry = {
+        kind: '冲幺筒', p, points: pts, deltas,
+        seq: idx + 1, label: `第 ${idx + 1} 张幺筒`
+      };
+      this.penaltyLog.push(entry);
+      this.note(`冲幺筒：${this.players[p].name} 打出幺筒，向其他三家各收 ${pts} 分`);
+      this.emit('chong', entry);
+      return entry;
     }
 
     /* ---------------- 可选动作 ---------------- */
@@ -247,7 +277,8 @@
       const bugang = [];
       // 报听后手牌锁定，不能再碰 / 杠
       if (!pl.tingDeclared) {
-        for (let t = 0; t < 27; t++) if (c[t] === 4) angang.push(t);
+        // 幺筒是财神，不能杠
+        for (let t = 0; t < 27; t++) if (c[t] === 4 && !R.isWildTile(t, this.mode)) angang.push(t);
         for (const m of pl.melds) if (m.type === 'peng' && c[m.tile] >= 1) bugang.push(m.tile);
       }
       return { hu: info, angang, bugang };
@@ -258,7 +289,7 @@
       if (!pl.isHuman) {
         return this.delay(360).then(() => {
           if (this.phase !== 'playing') return { type: 'none' };
-          const tile = AI.chooseDiscard(pl.hand, pl.melds);
+          const tile = this.aiDiscard(p);
           return { type: 'discard', tile };
         });
       }
@@ -277,6 +308,20 @@
         if (auto) return this.playAuto(p, self, auto, 380, false);
       }
       return this.waitHumanDiscard(p, self);
+    }
+
+    /** 电脑出牌：冲幺筒还有分可拿时，会主动把幺筒冲出去抢分 */
+    aiDiscard(p) {
+      const pl = this.players[p];
+      const M = this.mode;
+      if (M.wild !== null && M.wild !== undefined
+        && this.chongCount < R.CHONG_POINTS.length
+        && pl.hand.indexOf(M.wild) >= 0) {
+        // 冲出去立刻收三家分：不影响听牌就冲，否则也会有一半概率去抢
+        const rest = removeTiles(pl.hand, M.wild, 1);
+        if (R.tenpaiTiles(rest, pl.melds).length > 0 || Math.random() < 0.45) return M.wild;
+      }
+      return AI.chooseDiscard(pl.hand, pl.melds, M);
     }
 
     /** 程序代打：先亮出要打哪张，再落子。sticky = 报听后不可撤销 */
@@ -466,8 +511,8 @@
         if (info && !R.canChiPao(info) && pl.isHuman) {
           this.emit('blocked', { info, tile });
         }
-        // 报听的人不能再碰 / 杠
-        if (!pl.tingDeclared) {
+        // 报听的人不能再碰 / 杠；幺筒是财神，谁也不能碰 / 杠
+        if (!pl.tingDeclared && !R.isWildTile(tile, this.mode)) {
           if (c[tile] >= 3) acts.push('gang');
           if (c[tile] >= 2) acts.push('peng');
         }
@@ -649,6 +694,7 @@
 
         const extra = [];
         let points = info ? info.points : 1;
+        if (info && info.hardBonus) { points += info.hardBonus; extra.push(`硬胡 +${info.hardBonus}`); }
         if (opts.selfDraw) { points += 1; extra.push('自摸 +1'); }
         if (opts.gangFlower) { points += 1; extra.push('杠上花 +1'); }
         if (opts.repao) { points += BONUS.repao; extra.push(`热炮 +${BONUS.repao}`); }
@@ -665,7 +711,9 @@
           p, winTile, selfDraw: !!opts.selfDraw, from: opts.from,
           hand: fullHand,
           melds: pl.melds.map((m) => Object.assign({}, m)),
-          info, points, extra
+          info, points, extra,
+          hard: info && info.hard !== undefined ? info.hard : undefined,
+          joker: info && info.joker !== undefined ? info.joker : undefined
         };
       });
 
@@ -688,9 +736,9 @@
       }
       this.applyDeltas(winDeltas);
 
-      // 鸡
+      // 鸡（冲幺筒模式没有鸡）
       const flip = this.wall.length ? this.wall[0] : null;
-      const chickens = R.chickenSet(flip);
+      const chickens = R.chickenSet(flip, this.mode);
       const winnerSeats = results.map((r) => r.p);
       const isTing = this.players.map((q, i) =>
         winnerSeats.indexOf(i) >= 0 || R.tenpaiTiles(q.hand, q.melds).length > 0);
@@ -722,6 +770,7 @@
       const first = results[0];
       this.result = {
         draw: false,
+        mode: this.mode.id,
         winners: results,
         winner: first.p,
         selfDraw: first.selfDraw,
@@ -738,6 +787,7 @@
         chickens,
         chickenCount,
         chickenDeltas,
+        chongLog: this.penaltyLog.filter((k) => k.kind === '冲幺筒'),
         charge: charge ? { p: charge.p, tile: charge.tile } : null,
         baoji,
         isTing,
@@ -773,11 +823,13 @@
       this.applyDeltas(deltas);
       this.result = {
         draw: true,
+        mode: this.mode.id,
         ting,
         deltas: this.roundDeltas.slice(),
         scores: this.scores.slice(),
         kongLog: this.kongLog.slice(),
-        penaltyLog: this.penaltyLog.slice()
+        penaltyLog: this.penaltyLog.slice(),
+        chongLog: this.penaltyLog.filter((k) => k.kind === '冲幺筒')
       };
       this.note('牌墙摸完，黄庄查叫');
       this.emit('draw', this.result);

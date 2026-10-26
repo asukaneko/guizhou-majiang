@@ -76,6 +76,7 @@
   function cacheDom() {
     el.stage = $('#stage');
     el.wrap = $('#stage-wrap');
+    el.lobby = $('#lobby');
     el.actions = $('#actions');
     el.calls = $('#calls');
     el.toast = $('#toast');
@@ -87,6 +88,8 @@
     el.soundBtn = $('#btn-sound');
     el.speedBtn = $('#btn-speed');
     el.autoBtn = $('#btn-auto');
+    el.brandSub = $('#brand-sub');
+    el.lobbyBtn = $('#btn-lobby');
   }
 
   /* ---------------- 出牌速度 ---------------- */
@@ -125,16 +128,22 @@
 
   /* ---------------- 拼装 ---------------- */
 
-  const isKnownChicken = (t) => t === R.YAOJI || t === R.WUGU;
+  const curMode = () => (game && game.mode) || R.MODES.classic;
+  const isWild = (t) => {
+    const m = curMode();
+    return m.wild !== null && m.wild !== undefined && t === m.wild;
+  };
+  const isKnownChicken = (t) => curMode().chickens && (t === R.YAOJI || t === R.WUGU);
 
   function faceHtml(t, extra) {
-    const classes = `${isKnownChicken(t) ? ' chicken' : ''}${extra ? ' ' + extra : ''}`;
+    const classes = `${isKnownChicken(t) ? ' chicken' : ''}${isWild(t) ? ' wild' : ''}${extra ? ' ' + extra : ''}`;
     const marker = extra && extra.indexOf('claim-target') >= 0
       ? '<span class="claim-marker">可碰这张</span>'
       : extra && extra.indexOf('fresh') >= 0
         ? '<span class="claim-marker latest-marker">最新</span>'
         : '';
-    return `<div class="tile${classes}" data-tile="${t}">${T.face(t)}${marker}</div>`;
+    const wild = isWild(t) ? '<span class="wild-tag">财神</span>' : '';
+    return `<div class="tile${classes}" data-tile="${t}">${T.face(t)}${wild}${marker}</div>`;
   }
 
   function backHtml() { return `<div class="back">${T.back()}</div>`; }
@@ -296,6 +305,8 @@
         (s.angang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="angang" data-tile="${t}">暗杠 ${TN(t)}</button>`; });
         (s.bugang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="bugang" data-tile="${t}">补杠 ${TN(t)}</button>`; });
         if (game.canTing(0)) html += '<button class="action-btn ting" data-act="ting">报听</button>';
+        const chong = wildHint();
+        if (chong) html += `<div class="auto-hint chong-hint">${chong}</div>`;
         if (game.autoPlay && !game.autoDecision(0, a.self)) {
           html += '<div class="auto-hint">自动摸打待命 · 还没听牌，先手动打一张</div>';
         }
@@ -316,6 +327,17 @@
   /* ---------------- 悬停：打出这张牌之后听什么 ---------------- */
 
   let tipTile = null;
+
+  /** 冲幺筒还有分可拿时，提示手里那张幺筒值多少 */
+  function wildHint() {
+    const m = curMode();
+    if (!game || m.wild === null || m.wild === undefined) return '';
+    const left = R.CHONG_POINTS.length - (game.chongCount || 0);
+    if (left <= 0) return '';
+    const hand = game.players[0].hand;
+    if (hand.indexOf(m.wild) < 0) return '';
+    return `冲幺筒 · 打出 ${TN(m.wild)} 向三家各收 ${R.CHONG_POINTS[game.chongCount]} 分`;
+  }
 
   function visibleCounts() {
     const c = new Array(27).fill(0);
@@ -356,15 +378,18 @@
     const idx = hand.indexOf(tile);
     if (idx < 0) return { html: '', waits: [] };
     hand.splice(idx, 1);
+    const chongLeft = R.CHONG_POINTS.length - (game.chongCount || 0);
+    const chong = isWild(tile) && chongLeft > 0
+      ? `<div class="tip-chong">冲幺筒 · 向其他三家各收 ${R.CHONG_POINTS[game.chongCount]} 分</div>` : '';
     const waits = R.tenpaiTiles(hand, me.melds);
     if (!waits.length) {
-      return { html: `<b>打 ${TN(tile)}</b> → 不听牌`, waits: [] };
+      return { html: `${chong}<b>打 ${TN(tile)}</b> → 不听牌`, waits: [] };
     }
     const vis = visibleCounts();
     const remain = waits.reduce((s, w) => s + Math.max(0, 4 - vis[w]), 0);
     const tiles = waits.map((t) => `<span class="tile">${T.face(t)}</span>`).join('');
     return {
-      html: `<b>打 ${TN(tile)}</b> → 听 <span class="tip-tiles">${tiles}</span> 可见剩 <b>${remain}</b> 张`,
+      html: `${chong}<b>打 ${TN(tile)}</b> → 听 <span class="tip-tiles">${tiles}</span> 可见剩 <b>${remain}</b> 张`,
       waits
     };
   }
@@ -427,6 +452,7 @@
 
   function resultHtml(res) {
     if (res.draw) return drawHtml(res);
+    const mode = R.MODES[res.mode] || R.MODES.classic;
     const winners = res.winners || [{
       p: res.winner, winTile: res.winTile, selfDraw: res.selfDraw, from: res.from,
       hand: res.hand, melds: res.melds, info: res.info, points: res.points, extra: res.extra || []
@@ -440,11 +466,13 @@
         : res.robKong ? `抢杠（${game.players[w.from].name} 补杠）`
           : `${game.players[w.from].name} 点炮`;
       const melds = w.melds.map((m) => `<div class="meld-inline">${m.tiles.map(tileMini).join('')}</div>`).join('');
-      const handTiles = w.hand.map((t) => `<div class="tile${w.winTile === t ? ' win' : ''}">${T.face(t)}</div>`).join('');
+      const handTiles = w.hand.map((t) => `<div class="tile${w.winTile === t ? ' win' : ''}${isWild(t) ? ' wild' : ''}">${T.face(t)}</div>`).join('');
+      const softTag = w.hard === undefined || w.hard === null ? ''
+        : w.hard ? '<span class="hard-tag hard">硬胡</span>' : '<span class="hard-tag soft">软胡</span>';
       return `<div class="winner-block">
         <div class="result-head">
           <div>
-            <div class="result-pattern">${multi ? `<span class="winner-tag">${game.players[w.p].name}</span>` : ''}${info.name}</div>
+            <div class="result-pattern">${multi ? `<span class="winner-tag">${game.players[w.p].name}</span>` : ''}${info.name}${softTag}</div>
             <div class="sub" style="margin:0">${fromName}</div>
           </div>
           <div class="result-points"><strong>${w.points}</strong><span>胡牌分${w.extra && w.extra.length ? '（' + w.extra.join('，') + '）' : ''}</span></div>
@@ -457,33 +485,72 @@
       ? `<div class="multi-banner">一炮 ${winners.length} 响 · ${game.players[winners[0].from].name} 一家赔 ${winners.length} 份</div>`
       : '';
 
-    const chickenChips = res.chickens.map((c) =>
-      `<span class="ji-chip">${tileMini(c.tile)}${c.kind} ${c.rate} 分/张</span>`).join('') +
-      (res.charge ? `<span class="ji-chip charge">${tileMini(res.charge.tile)}冲锋鸡 ×2（${game.players[res.charge.p].name}）</span>` : '');
+    /* 鸡（经典）/ 幺筒（幺筒麻将）说明区 */
+    let collectHead = '捉鸡';
+    let collectHtml = '';
+    if (mode.chickens) {
+      const chickenChips = res.chickens.map((c) =>
+        `<span class="ji-chip">${tileMini(c.tile)}${c.kind} ${c.rate} 分/张</span>`).join('') +
+        (res.charge ? `<span class="ji-chip charge">${tileMini(res.charge.tile)}冲锋鸡 ×2（${game.players[res.charge.p].name}）</span>` : '');
+      const flipText = res.flip != null
+        ? `<div class="ji-flip">翻牌 ${tileMini(res.flip)} <span>${TN(res.flip)}</span> → 翻牌鸡 ${TN(R.nextTile(res.flip))}</div>`
+        : '<div class="ji-flip">牌墙已空，未翻牌（只有幺鸡 / 乌骨鸡算鸡）</div>';
+      const baojiText = (res.baoji && res.baoji.length)
+        ? `<p class="note">包鸡：${res.baoji.map((b) => `${game.players[b.p].name} 没叫牌，${b.points} 分赔给 ${game.players[b.to].name}`).join('；')}</p>`
+        : '';
+      collectHtml = `${flipText}
+        <div class="ji-row" style="margin-top:8px">${chickenChips}</div>
+        <p class="note" style="margin-top:6px">叫牌的人按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份；没叫牌的人（包鸡）反而把自己的鸡赔给胡牌的人。</p>
+        ${baojiText}`;
+    } else {
+      collectHead = '幺筒（财神）';
+      const chong = (res.chongLog || []).map((k) =>
+        `第 ${k.seq} 张 · ${game.players[k.p].name} 打出，向其他三家各收 ${k.points} 分`);
+      collectHtml = `<div class="ji-flip">幺筒 = ${tileMini(18)} <span>一筒</span> → 可替代任意牌；不能碰、不能杠</div>
+        <div class="ji-row" style="margin-top:8px">
+          <span class="ji-chip">${tileMini(18)}财神 · 替任意牌</span>
+          <span class="ji-chip">软胡（用了替身）</span>
+          <span class="ji-chip">硬胡（没用替身）+${R.BONUS.hardHu}</span>
+          <span class="ji-chip">首冲 ${R.CHONG_POINTS[0]} 分/家 · 二冲 ${R.CHONG_POINTS[1]} 分/家</span>
+        </div>
+        <p class="note" style="margin-top:6px">本模式不捉鸡：只算胡牌分、豆和冲幺筒的流水。${
+          chong.length ? '冲幺筒记录：' + chong.join('；') : '本局没有幺筒被打出。'
+        }</p>`;
+    }
 
     const rows = game.players.map((p, i) => {
       const d = res.deltas[i];
       const state = isWinner(i) ? '胡牌' : (res.isTing[i] ? '叫牌' : '未叫');
-      const n = res.chickenCount[i];
-      const jiText = res.isTing[i] ? `${n} 分` : (n ? `${n} 分<i>（包鸡）</i>` : '0');
 
-      // 收支明细：胡 / 豆 · 责任鸡 / 鸡
+      // 收支明细：胡 / 豆 · 责任鸡 / 鸡（或冲幺筒）
       const parts = [];
       const w = res.winDeltas[i];
       if (w) parts.push(`胡 ${w > 0 ? '+' : ''}${w}`);
-      let kong = 0;
+      let kong = 0, chong = 0;
       res.kongLog.forEach((k) => { kong += k.deltas[i]; });
-      (res.penaltyLog || []).forEach((k) => { kong += k.deltas[i]; });
+      (res.penaltyLog || []).forEach((k) => {
+        if (k.kind === '冲幺筒') chong += k.deltas[i];
+        else kong += k.deltas[i];
+      });
       if (kong) parts.push(`豆 ${kong > 0 ? '+' : ''}${kong}`);
-      const c = res.chickenDeltas[i];
-      if (c) parts.push(`鸡 ${c > 0 ? '+' : ''}${c}`);
+      if (chong) parts.push(`冲 ${chong > 0 ? '+' : ''}${chong}`);
+      if (mode.chickens) {
+        const c = res.chickenDeltas[i];
+        if (c) parts.push(`鸡 ${c > 0 ? '+' : ''}${c}`);
+      }
       if (!parts.length) parts.push('0');
       const detail = parts.join('<i> · </i>');
+
+      const collectCell = mode.chickens
+        ? `<td class="${res.isTing[i] ? '' : 'muted'}">${res.isTing[i]
+            ? `${res.chickenCount[i]} 分`
+            : (res.chickenCount[i] ? `${res.chickenCount[i]} 分<i>（包鸡）</i>` : '0')}</td>`
+        : '';
 
       return `<tr class="${i === 0 ? 'me' : ''}">
         <td class="name">${p.name}</td>
         <td>${state}</td>
-        <td class="${res.isTing[i] ? '' : 'muted'}">${jiText}</td>
+        ${collectCell}
         <td class="detail">${detail}</td>
         <td class="${d >= 0 ? 'pos' : 'neg'}">${d > 0 ? '+' : ''}${d}</td>
         <td class="${res.scores[i] >= 0 ? 'pos' : 'neg'}">${res.scores[i] > 0 ? '+' : ''}${res.scores[i]}</td>
@@ -494,43 +561,38 @@
       const who = game.players[k.p].name;
       const kind = k.type === 'angang' ? '暗杠' : k.type === 'bugang' ? '补杠' : '明杠';
       return `${who} ${kind} ${TN(k.tile)}`;
-    }).concat((res.penaltyLog || []).map((k) =>
+    }).concat((res.penaltyLog || []).filter((k) => k.kind !== '冲幺筒').map((k) =>
       `${game.players[k.p].name} 冲锋鸡被 ${game.players[k.to].name} 拿走，责任鸡赔 ${k.points} 分`
     ));
     const kongRows = kongNotes.length
       ? `<h3>豆 / 责任鸡</h3><p class="note">${kongNotes.join('　·　')}</p>`
       : '';
 
-    const baojiText = (res.baoji && res.baoji.length)
-      ? `<p class="note">包鸡：${res.baoji.map((b) => `${game.players[b.p].name} 没叫牌，${b.points} 分赔给 ${game.players[b.to].name}`).join('；')}</p>`
-      : '';
-
-    const flipText = res.flip != null
-      ? `<div class="ji-flip">翻牌 ${tileMini(res.flip)} <span>${TN(res.flip)}</span> → 翻牌鸡 ${TN(R.nextTile(res.flip))}</div>`
-      : '<div class="ji-flip">牌墙已空，未翻牌（只有幺鸡 / 乌骨鸡算鸡）</div>';
+    const headCells = mode.chickens
+      ? '<th>玩家</th><th>状态</th><th>鸡</th><th>明细（胡 · 豆 · 鸡）</th><th>本局</th><th>总分</th>'
+      : '<th>玩家</th><th>状态</th><th>明细（胡 · 豆 · 冲）</th><th>本局</th><th>总分</th>';
 
     return `<div class="panel${multi ? ' multi' : ''}">
       ${banner}
       ${blocks}
-      <h3>捉鸡</h3>
-      ${flipText}
-      <div class="ji-row" style="margin-top:8px">${chickenChips}</div>
-      <p class="note" style="margin-top:6px">叫牌的人按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份；没叫牌的人（包鸡）反而把自己的鸡赔给胡牌的人。</p>
-      ${baojiText}
+      <h3>${collectHead}</h3>
+      ${collectHtml}
       ${kongRows}
       <h3>本局结算</h3>
       <table class="score-table">
-        <thead><tr><th>玩家</th><th>状态</th><th>鸡</th><th>明细（胡 · 豆 · 鸡）</th><th>本局</th><th>总分</th></tr></thead>
+        <thead><tr>${headCells}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <div class="panel-actions">
         <button class="btn-ghost" data-act="close">看看牌桌</button>
+        <button class="btn-ghost" data-act="lobby">回大厅</button>
         <button class="btn-primary" data-act="next">再来一局</button>
       </div>
     </div>`;
   }
 
   function drawHtml(res) {
+    const mode = R.MODES[res.mode] || R.MODES.classic;
     const rows = game.players.map((p, i) => {
       const ting = res.ting[i];
       const d = res.deltas[i];
@@ -542,22 +604,28 @@
         <td class="${res.scores[i] >= 0 ? 'pos' : 'neg'}">${res.scores[i] > 0 ? '+' : ''}${res.scores[i]}</td>
       </tr>`;
     }).join('');
+    const chong = (res.chongLog || []).map((k) =>
+      `${game.players[k.p].name} 冲幺筒（第 ${k.seq} 张）赔 ${k.points} 分/家`);
+    const note = mode.chickens
+      ? '本局不翻牌，鸡与豆不另算，按查叫结算。'
+      : `本模式不捉鸡，按查叫结算。${chong.length ? '冲幺筒：' + chong.join('；') : ''}`;
     return `<div class="panel">
       <div class="result-head">
         <div>
           <div class="result-pattern">黄庄</div>
-          <div class="sub" style="margin:0">牌墙摸完 · 查叫结算</div>
+          <div class="sub" style="margin:0">${mode.name} · 牌墙摸完 · 查叫结算</div>
         </div>
-        <div class="result-points"><strong>0</strong><span>本局不翻牌，鸡与豆不另算</span></div>
+        <div class="result-points"><strong>0</strong><span>本局不翻牌</span></div>
       </div>
       <h3>查叫</h3>
-      <p class="note">未叫牌的人，赔给每个叫牌者「其叫牌牌型的分值」。</p>
+      <p class="note">未叫牌的人，赔给每个叫牌者「其叫牌牌型的分值」。${note}</p>
       <table class="score-table">
         <thead><tr><th>玩家</th><th>状态</th><th>听牌</th><th>本局</th><th>总分</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <div class="panel-actions">
         <button class="btn-ghost" data-act="close">看看牌桌</button>
+        <button class="btn-ghost" data-act="lobby">回大厅</button>
         <button class="btn-primary" data-act="next">再来一局</button>
       </div>
     </div>`;
@@ -571,8 +639,31 @@
 
   /* ---------------- 规则 ---------------- */
 
-  const RULES_HTML = `<div class="panel">
-    <h2>贵阳捉鸡 · 规则</h2>
+  const RULES_COMMON = `
+    <h3>豆（杠）</h3>
+    <ul>
+      <li>每个豆 3 分：暗杠、补杠由其他三家各付 3；明杠只由放杠那家付 3</li>
+      <li>豆分当场结算，直接计入总分</li>
+    </ul>
+
+    <h3>抢杠胡 / 热炮 / 一炮多响</h3>
+    <ul>
+      <li><span class="hl">抢杠胡</span>：别人补杠的那张牌正好是你听的牌 → 你可以抢杠，杠不成立，杠家包三家。</li>
+      <li><span class="hl">热炮</span>：杠完后打出的第一张牌被别人胡，胡牌分 +1。</li>
+      <li><span class="hl">一炮多响</span>：一张牌同时被两家以上胡，所有人都算胡，点炮者各赔一份。</li>
+    </ul>
+
+    <h3>报听 / 天听</h3>
+    <p>轮到你出牌且手牌听牌时，可以点「<span class="hl">报听</span>」：系统替你打出那张保持听牌的牌，之后手牌锁定——不能再碰、不能杠，摸什么打什么，见胡就胡。起手 13 张就听牌、并且在第一巡报听，算<span class="hl">天听</span>（+6）。</p>
+
+    <h3>黄庄</h3>
+    <p>牌墙摸完按查叫结算：未叫的人赔给每个叫牌者「其叫牌牌型的分值」。</p>
+
+    <h3>自动摸打</h3>
+    <p>右上角「自动摸打」开关（快捷键 <span class="hl">A</span>）：听牌后自动替你摸打，打出一张仍保持听牌的牌，能自摸就直接胡；碰、杠、吃炮胡仍然由你决定。</p>`;
+
+  const RULES_BODY = {
+    classic: `
     <div class="sub">108 张牌（万 / 条 / 筒 各 1-9），无字牌无花牌；不能吃，只能碰、杠、胡</div>
 
     <h3>牌型与分值（取最高的一种，不叠加）</h3>
@@ -591,24 +682,8 @@
       <li>热炮 <span class="hl">+1</span>：杠后打出的那张牌被别人胡</li>
     </ul>
 
-    <h3>报听 / 天听</h3>
-    <p>轮到你出牌且手牌听牌时，可以点「<span class="hl">报听</span>」：系统替你打出那张保持听牌的牌，之后手牌锁定——不能再碰、不能杠，摸什么打什么，见胡就胡。起手 13 张就听牌、并且在第一巡报听，算<span class="hl">天听</span>。</p>
-
     <h3>吃炮通行证</h3>
     <p>有豆（杠过）→ 平胡也能吃炮；没有豆 → 只有 5 分以上的牌型才能吃炮，平胡只能自摸。抢杠胡不受此限。</p>
-
-    <h3>豆（杠）</h3>
-    <ul>
-      <li>每个豆 3 分：暗杠、补杠由其他三家各付 3；明杠只由放杠那家付 3</li>
-      <li>豆分当场结算，直接计入总分</li>
-    </ul>
-
-    <h3>抢杠胡 / 热炮 / 一炮多响</h3>
-    <ul>
-      <li><span class="hl">抢杠胡</span>：别人补杠的那张牌正好是你听的牌 → 你可以抢杠，杠不成立，杠家包三家。</li>
-      <li><span class="hl">热炮</span>：杠完后打出的第一张牌被别人胡，胡牌分 +1。</li>
-      <li><span class="hl">一炮多响</span>：一张牌同时被两家以上胡，所有人都算胡，点炮者各赔一份，鸡分别结算。</li>
-    </ul>
 
     <h3>鸡</h3>
     <ul>
@@ -620,21 +695,58 @@
       <li><span class="hl">包鸡</span>：胡牌时没叫牌的人，自己手里的鸡反过来赔给胡牌的人</li>
       <li>叫牌（听牌）的人按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份</li>
     </ul>
+    ${RULES_COMMON}`,
 
-    <h3>黄庄</h3>
-    <p>牌墙摸完不翻牌，豆与鸡都不算，按查叫结算：未叫的人赔给每个叫牌者「其叫牌牌型的分值」。</p>
+    yitong: `
+    <div class="sub">108 张牌（万 / 条 / 筒 各 1-9），四家，不能吃；一筒就是<span class="hl">幺筒</span></div>
 
-    <h3>自动摸打</h3>
-    <p>右上角「自动摸打」开关（快捷键 <span class="hl">A</span>）：听牌后自动替你摸打，打出一张仍保持听牌的牌，能自摸就直接胡；碰、杠、吃炮胡仍然由你决定。没听牌时照常提示你手动出牌。</p>
+    <h3>财神：幺筒</h3>
+    <ul>
+      <li>手里的每张幺筒都能<span class="hl">替代任意一张牌</span>去凑牌型：顺子缺张、刻子缺张、将缺一张，都能用幺筒替</li>
+      <li>幺筒也可以当真一筒用（凑 123 筒、当刻子、当将），怎么划算怎么来</li>
+      <li><span class="hl">软胡</span>：胡牌时用了替身（至少一张幺筒当别的牌）</li>
+      <li><span class="hl">硬胡</span>：一张替身都没用（幺筒全当真一筒，或者手里根本没幺筒），胡牌分 <span class="hl">+5</span></li>
+      <li>幺筒<span class="hl">不能碰、不能杠</span>——财神不成坎</li>
+    </ul>
 
-    <p class="note">规则口径参考公开的贵阳捉鸡资料（腾讯欢乐麻将的四类鸡、贵州麻将的包牌 / 一炮多响 / 硬报软听），加分与倍数是为单机对局定的固定值，够日常开一桌。</p>
+    <h3>冲幺筒</h3>
+    <ul>
+      <li>本局<span class="hl">第一张</span>被打出的幺筒：打牌者向其他三家<span class="hl">各收 5 分</span></li>
+      <li>本局<span class="hl">第二张</span>：各收 <span class="hl">3 分</span>；第三、第四张没有冲分</li>
+      <li>先冲先赚：4 张幺筒谁先打出去谁收钱——冲出去就少一张财神，自己权衡</li>
+      <li>电脑也懂这个：冲分还没被拿完时，会主动把幺筒打出来抢分</li>
+    </ul>
 
-    <div class="panel-actions"><button class="btn-primary" data-act="close-rules">知道了</button></div>
-  </div>`;
+    <h3>牌型与分值（与经典一致，取最高的一种）</h3>
+    <ul>
+      <li>平胡 <span class="hl">1</span>　大对子 <span class="hl">5</span>　七对 <span class="hl">7</span>　龙七对 <span class="hl">10</span></li>
+      <li>清一色 <span class="hl">10</span>　清大对 <span class="hl">15</span>　清七对 <span class="hl">17</span>　清龙七对 <span class="hl">20</span></li>
+      <li>自摸 <span class="hl">+1</span>，杠上花 <span class="hl">+1</span>，硬胡 <span class="hl">+5</span></li>
+      <li>天胡 <span class="hl">+20</span>　地胡 <span class="hl">+10</span>　报听 <span class="hl">+3</span>　天听 <span class="hl">+6</span>　抢杠胡 <span class="hl">+5</span>　热炮 <span class="hl">+1</span></li>
+    </ul>
 
-  function showRules() {
+    <h3>本模式没有鸡</h3>
+    <p>幺鸡、八筒在这里都只是普通牌；不算鸡、不翻牌、也没有包鸡。结算只看：胡牌分 + 豆 + 冲幺筒。</p>
+    ${RULES_COMMON}`
+  };
+
+  function rulesHtml(tab) {
+    const id = R.MODES[tab] ? tab : (game ? game.mode.id : 'classic');
+    const tabs = R.MODE_ORDER.map((mid) =>
+      `<button class="rules-tab${mid === id ? ' on' : ''}" data-rules-tab="${mid}">${R.MODES[mid].name}</button>`
+    ).join('');
+    return `<div class="panel rules-panel">
+      <h2>玩法规则</h2>
+      <div class="rules-tabs">${tabs}</div>
+      ${RULES_BODY[id]}
+      <p class="note">规则口径参考公开的贵阳捉鸡 / 遵义幺筒麻将资料；加分与赔率是为单机对局定的固定值，可在规则里随时改。</p>
+      <div class="panel-actions"><button class="btn-primary" data-act="close-rules">知道了</button></div>
+    </div>`;
+  }
+
+  function showRules(tab) {
     el.overlay.classList.remove('hidden');
-    el.overlay.innerHTML = RULES_HTML;
+    el.overlay.innerHTML = rulesHtml(tab);
   }
 
   /* ---------------- 交互 ---------------- */
@@ -661,7 +773,15 @@
       } else if (act === 'claim-pass') game.humanRespond('pass');
       else if (act === 'next') { el.overlay.classList.add('hidden'); game.nextRound(); }
       else if (act === 'close') el.overlay.classList.add('hidden');
+      else if (act === 'lobby') showLobby();
       else if (act === 'close-rules') el.overlay.classList.add('hidden');
+    });
+
+    // 规则面板：切换玩法页签
+    document.addEventListener('click', (e) => {
+      const tab = e.target.closest('[data-rules-tab]');
+      if (!tab) return;
+      showRules(tab.dataset.rulesTab);
     });
 
     document.addEventListener('keydown', (e) => {
@@ -699,10 +819,11 @@
       if (Sound.enabled) Sound.tone(880, 0.1, 'sine', 0.08);
     });
 
-    $('#btn-rules').addEventListener('click', showRules);
+    $('#btn-rules').addEventListener('click', () => showRules(game ? game.mode.id : 'classic'));
+    el.lobbyBtn.addEventListener('click', showLobby);
     $('#btn-reset-scores').addEventListener('click', () => {
       if (!game) return;
-      const ok = window.confirm('确定清空你、下家、对家、上家的累计分数吗？此操作不能撤销。');
+      const ok = window.confirm(`确定清空「${game.mode.name}」牌桌上四家的累计分数吗？（生涯战绩在大厅里清空）`);
       if (!ok) return;
       game.scores = [0, 0, 0, 0];
       game.roundDeltas = [0, 0, 0, 0];
@@ -733,14 +854,119 @@
   /* ---------------- 缩放 ---------------- */
 
   function fit() {
+    const inLobby = el.lobby && !el.lobby.classList.contains('hidden');
+    const box = inLobby ? el.lobby : el.wrap;
     const k = Math.min(
-      (el.wrap.clientWidth - 4) / 1200,
-      (el.wrap.clientHeight - 4) / 740
+      (box.clientWidth - 4) / 1200,
+      (box.clientHeight - 4) / 740
     );
     el.stage.style.transform = `scale(${k})`;
+    // 大厅是同一块 1200×740 的画布，跟着一起缩放
+    const lw = el.lobby && el.lobby.querySelector('.lb-wrap');
+    if (lw) lw.style.transform = `scale(${k})`;
   }
 
-  /* ---------------- 启动 ---------------- */
+  /* ---------------- 启动 / 大厅 ↔ 牌桌 ---------------- */
+
+  function showLobby() {
+    if (game) saveScore();
+    el.overlay.classList.add('hidden');
+    el.overlay.innerHTML = '';
+    hideTip();
+    GZLobby.show();
+    if (el.brandSub) el.brandSub.textContent = '游戏大厅 · 单机版';
+  }
+
+  function enterMode(modeId) {
+    const id = R.MODES[modeId] ? modeId : 'classic';
+    GZLobby.hide();
+    if (game && game.mode.id === id) {
+      // 同一玩法再进来：接着上桌，不重发牌
+      if (el.brandSub) el.brandSub.textContent = `${game.mode.name} · 单机版`;
+      render();
+      fit();
+      return;
+    }
+    createGame(id);
+    if (el.brandSub) el.brandSub.textContent = `${game.mode.name} · 单机版`;
+    toast(`进入「${game.mode.name}」· 第 ${game.roundNo} 局`, 2200);
+  }
+
+  function createGame(modeId) {
+    if (game) {
+      game.phase = 'ended';   // 停掉上一桌的循环
+      saveScore();
+    }
+    const saved = window.GZProfile.tableScore(modeId);
+    game = new GZ.Game({
+      mode: modeId,
+      speed: SPEEDS[speedIdx].value,
+      autoPlay: autoOn,
+      scores: saved ? saved.scores : undefined,
+      roundNo: saved ? saved.round : undefined,
+      dealer: saved ? saved.dealer : undefined
+    });
+    window.__game = game;
+    applySpeed();
+    applyAuto();
+    saveScore();
+    wireGame();
+    blockedShown = false;
+    game.startRound();
+  }
+
+  function wireGame() {
+    const g = game;                                  // 换玩法后旧牌桌的事件一律忽略
+    const on = (ev, fn) => g.on(ev, (data) => { if (game === g) fn(data); });
+    on('state', render);
+    on('deal', () => { Sound.deal(); blockedShown = false; saveScore(); render(); });
+    on('discard', () => Sound.discard());
+    on('chong', (entry) => {
+      Sound.tone(760, 0.12, 'triangle', 0.09);
+      Sound.tone(1140, 0.18, 'sine', 0.07, 0.09);
+      toast(`冲幺筒：向其他三家各收 ${entry.points} 分`, 2400);
+    });
+    on('call', ({ p, text }) => {
+      showCall(p, text);
+      if (text === '碰') Sound.peng();
+      else if (text.indexOf('杠') >= 0) { Sound.gang(); saveScore(); }
+      else if (text === '胡') Sound.hu();
+    });
+    on('message', (text) => { if (text) renderCenter(); });
+    on('blocked', () => {
+      if (blockedShown) return;
+      blockedShown = true;
+      toast('平胡没有豆，不能吃炮，只能自摸');
+    });
+    on('ting', (info) => {
+      Sound.tone(1046, 0.18, 'sine', 0.1);
+      toast(info.tianTing ? '天听！起手就听牌，胡牌 +6' : '已报听：手牌锁定，摸什么打什么', 2600);
+    });
+    g.on('roundEnd', (res) => {
+      if (game !== g) return;
+      if (!res.draw) Sound.hu();
+      recordRound(res);
+      setTimeout(() => { if (game === g) showResult(res); }, 650);
+      saveScore();
+    });
+    on('error', () => toast('对局出现异常，已重新发牌'));
+  }
+
+  /** 一局结束 → 写进玩家战绩与对局记录 */
+  function recordRound(res) {
+    const P = window.GZProfile;
+    const wins = res.winners || [];
+    const mine = wins.find((w) => w.p === 0) || null;
+    P.record({
+      mode: game.mode.id,
+      delta: res.deltas[0],
+      win: !!mine,
+      selfDraw: !!(mine && mine.selfDraw),
+      pattern: mine && mine.info ? mine.info.name : (res.draw ? '黄庄' : ''),
+      points: mine ? mine.points : 0,
+      draw: !!res.draw
+    });
+  }
 
   function start() {
     cacheDom();
@@ -754,69 +980,19 @@
       autoOn = localStorage.getItem('gz-auto') === '1';
     } catch (e) { /* ignore */ }
 
-    const savedScore = loadScore();
-    game = new GZ.Game({
-      speed: SPEEDS[speedIdx].value,
-      autoPlay: autoOn,
-      scores: savedScore ? savedScore.scores : undefined,
-      roundNo: savedScore ? savedScore.round : undefined,
-      dealer: savedScore ? savedScore.dealer : undefined
-    });
-    window.__game = game;
-    applySpeed();
-    applyAuto();
-    saveScore();
+    GZLobby.init({ onEnter: enterMode, onRules: showRules, onRender: fit });
+    window.__ui = { enterMode, showLobby, showRules };
 
-    game.on('state', render);
-    game.on('deal', () => { Sound.deal(); blockedShown = false; saveScore(); render(); });
-    game.on('discard', () => Sound.discard());
-    game.on('call', ({ p, text }) => {
-      showCall(p, text);
-      if (text === '碰') Sound.peng();
-      else if (text.indexOf('杠') >= 0) { Sound.gang(); saveScore(); }
-      else if (text === '胡') Sound.hu();
-    });
-    game.on('message', (text) => { if (text) renderCenter(); });
-    game.on('blocked', () => {
-      if (blockedShown) return;
-      blockedShown = true;
-      toast('平胡没有豆，不能吃炮，只能自摸');
-    });
-    game.on('ting', (info) => {
-      Sound.tone(1046, 0.18, 'sine', 0.1);
-      toast(info.tianTing ? '天听！起手就听牌，胡牌 +6' : '已报听：手牌锁定，摸什么打什么', 2600);
-    });
-    game.on('roundEnd', (res) => {
-      if (!res.draw) Sound.hu();
-      setTimeout(() => showResult(res), 650);
-      saveScore();
-    });
-    game.on('error', () => toast('对局出现异常，已重新发牌'));
-
+    blockedShown = false;
     bind();
-    game.startRound();
-  }
-
-  function loadScore() {
-    try {
-      const raw = localStorage.getItem('gz-mj-score');
-      if (!raw) return null;
-      const data = JSON.parse(raw);
-      if (!data || !Array.isArray(data.scores) || data.scores.length !== 4) return null;
-      const scores = data.scores.map((n) => Number.isFinite(Number(n)) ? Number(n) : 0);
-      const round = Number.isInteger(data.round) && data.round > 0 ? data.round : 1;
-      const dealer = Number.isInteger(data.dealer) && data.dealer >= 0 && data.dealer < 4 ? data.dealer : 0;
-      return { scores, round, dealer };
-    } catch (e) { return null; }
+    showLobby();
   }
 
   function saveScore() {
     if (!game) return;
-    try {
-      localStorage.setItem('gz-mj-score', JSON.stringify({
-        scores: game.scores, round: game.roundNo, dealer: game.dealer
-      }));
-    } catch (e) { /* ignore */ }
+    window.GZProfile.saveTable(game.mode.id, {
+      scores: game.scores, round: game.roundNo, dealer: game.dealer
+    });
   }
 
   document.addEventListener('DOMContentLoaded', start);

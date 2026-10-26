@@ -1,8 +1,12 @@
-/* 贵阳捉鸡麻将 · 规则核心
+/* 贵州麻将 · 规则核心
  * 纯函数模块，浏览器 / Node 通用。
  *
  * 牌：108 张，万/条/筒 各 1-9，无字牌无花牌。
  * 编号 0..26：0-8 = 一万..九万，9-17 = 一条..九条，18-26 = 一筒..九筒。
+ *
+ * 玩法模式（MODES）：
+ *   classic  经典 · 贵阳捉鸡：四类鸡 + 报听 + 抢杠
+ *   yitong   冲幺筒：一筒当财神（可替任意牌），没有鸡，打出幺筒要赔分
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -15,11 +19,71 @@
 
   const YAOJI = 9;      // 幺鸡（一条）
   const WUGU = 25;      // 乌骨鸡（八筒）
+  const YITONG = 18;    // 幺筒（一筒）
 
   const suit = (t) => (t / 9) | 0;
   const rank = (t) => (t % 9) + 1;
   const tileName = (t) => CN[t % 9] + SUITS[(t / 9) | 0];
   const nextTile = (t) => (t % 9 === 8 ? t - 8 : t + 1);
+
+  /* ---------------- 玩法模式 ---------------- */
+
+  const MODES = {
+    classic: {
+      id: 'classic',
+      name: '经典 · 贵阳捉鸡',
+      short: '经典',
+      tag: '108 张 · 捉鸡',
+      tagline: '四类鸡、报听锁牌、抢杠热炮，一桌贵阳老规矩。',
+      features: [
+        '幺鸡 / 乌骨鸡 / 翻牌鸡，金鸡翻倍',
+        '报听 · 天听 · 天胡地胡',
+        '抢杠胡 · 热炮 · 一炮多响',
+        '冲锋鸡 · 责任鸡 · 包鸡',
+        '黄庄查叫：没叫牌的人赔给叫牌者'
+      ],
+      wild: null,     // 无财神
+      chickens: true,
+      accent: 'gold'
+    },
+    yitong: {
+      id: 'yitong',
+      name: '幺筒麻将',
+      short: '幺筒',
+      tag: '财神幺筒',
+      tagline: '一筒当财神，能替任意一张牌；谁先把幺筒冲出去，谁收分。',
+      features: [
+        '幺筒（一筒）为财神，可替代任意牌',
+        '软胡 / 硬胡：一张替身都不用 = 硬胡 +5',
+        '冲幺筒：第 1 张打出的幺筒向三家各收 5 分，第 2 张收 3 分',
+        '幺筒不能碰、不能杠；本模式不捉鸡'
+      ],
+      wild: YITONG,
+      chickens: false,
+      accent: 'jade'
+    }
+  };
+  const MODE_ORDER = ['classic', 'yitong'];
+
+  let current = 'classic';
+
+  function resolveMode(mode) {
+    if (!mode) return MODES[current] || MODES.classic;
+    if (typeof mode === 'string') return MODES[mode] || MODES.classic;
+    if (mode.id && MODES[mode.id]) return MODES[mode.id];
+    return mode;
+  }
+  /** 切换当前玩法（胡牌判定 / 听牌等直接按当前模式算） */
+  function setMode(mode) {
+    const M = resolveMode(mode);
+    current = M.id;
+    return M;
+  }
+  const currentMode = () => MODES[current] || MODES.classic;
+  const isWildTile = (t, mode) => {
+    const M = resolveMode(mode);
+    return M.wild !== null && M.wild !== undefined && t === M.wild;
+  };
 
   function createWall() {
     const wall = [];
@@ -46,53 +110,84 @@
 
   /* ---------------- 胡牌拆解 ---------------- */
 
-  function canFormSets(c, sets) {
-    if (sets === 0) {
-      for (let i = 0; i < 27; i++) if (c[i]) return false;
-      return true;
-    }
+  /** 把 c 拆成 sets 组面子（wild 张财神可当任意牌）。不考虑将。 */
+  function canFormSets(c, sets, wild) {
+    wild = wild || 0;
+    if (sets === 0) return wild === 0;
     let i = -1;
     for (let k = 0; k < 27; k++) if (c[k]) { i = k; break; }
-    if (i < 0) return false;
-    if (c[i] >= 3) {
-      c[i] -= 3;
-      const ok = canFormSets(c, sets - 1);
-      c[i] += 3;
-      if (ok) return true;
-    }
-    const r = i % 9;
-    if (r <= 6 && c[i + 1] > 0 && c[i + 2] > 0) {
-      c[i]--; c[i + 1]--; c[i + 2]--;
-      const ok = canFormSets(c, sets - 1);
-      c[i]++; c[i + 1]++; c[i + 2]++;
-      if (ok) return true;
-    }
-    return false;
-  }
+    if (i < 0) return wild === sets * 3;
 
-  function isWinShape(c, setsNeeded) {
-    for (let i = 0; i < 27; i++) {
-      if (c[i] >= 2) {
-        c[i] -= 2;
-        const ok = canFormSets(c, setsNeeded);
-        c[i] += 2;
-        if (ok) return true;
+    // 刻子：尽量用真牌，不够的用财神补
+    const useReal = Math.min(3, c[i]);
+    const needTriplet = 3 - useReal;
+    if (needTriplet <= wild) {
+      c[i] -= useReal;
+      const ok = canFormSets(c, sets - 1, wild - needTriplet);
+      c[i] += useReal;
+      if (ok) return true;
+    }
+    // 顺子：i, i+1, i+2，缺的位置用财神补
+    if (i % 9 <= 6) {
+      for (let a = 0; a <= 1; a++) {
+        for (let b = 0; b <= 1; b++) {
+          const need = a + b;
+          if (need > wild) continue;
+          if (!a && c[i + 1] < 1) continue;
+          if (!b && c[i + 2] < 1) continue;
+          c[i]--; if (!a) c[i + 1]--; if (!b) c[i + 2]--;
+          const ok = canFormSets(c, sets - 1, wild - need);
+          c[i]++; if (!a) c[i + 1]++; if (!b) c[i + 2]++;
+          if (ok) return true;
+        }
       }
     }
     return false;
   }
 
-  function isSevenPairs(c) {
-    let total = 0;
+  /** 是否成胡（sets 组面子 + 一对将），wild 为财神张数 */
+  function isWinShape(c, setsNeeded, wild) {
+    wild = wild || 0;
     for (let i = 0; i < 27; i++) {
-      if (c[i] % 2) return false;
-      total += c[i];
+      if (c[i] >= 2) {
+        c[i] -= 2;
+        const ok = canFormSets(c, setsNeeded, wild);
+        c[i] += 2;
+        if (ok) return true;
+      }
     }
-    // 四归一（4 张相同）按两个对子算，所以只看总张数与对子数
-    return total === 14;
+    // 将里带财神：一张真牌 + 一张财神，或者两张财神
+    if (wild >= 1) {
+      for (let i = 0; i < 27; i++) {
+        if (c[i] >= 1) {
+          c[i] -= 1;
+          const ok = canFormSets(c, setsNeeded, wild - 1);
+          c[i] += 1;
+          if (ok) return true;
+        }
+      }
+    }
+    if (wild >= 2 && canFormSets(c, setsNeeded, wild - 2)) return true;
+    return false;
   }
 
-  function allTripletsShape(c, sets) {
+  /** 七对（含四归一算两对）；财神可以补单张 */
+  function isSevenPairs(c, wild) {
+    wild = wild || 0;
+    let total = 0;
+    let odd = 0;
+    for (let i = 0; i < 27; i++) {
+      total += c[i];
+      if (c[i] % 2) odd++;
+    }
+    if (odd > wild) return false;
+    // 剩下的财神两两成对（张数固定，奇偶自然吻合）
+    return total + wild === 14;
+  }
+
+  /** 大对子（全是刻子 + 一对将） */
+  function allTripletsShape(c, sets, wild) {
+    wild = wild || 0;
     for (let i = 0; i < 27; i++) {
       if (c[i] >= 2) {
         c[i] -= 2;
@@ -102,9 +197,38 @@
           s += c[k] / 3;
         }
         c[i] += 2;
-        if (ok && s === sets) return true;
+        if (ok && s === sets && wild === 0) return true;
       }
     }
+    // 带财神：把不足三张的坎用财神补齐，余下的财神三张一坎
+    const tripletsWithWild = (w) => {
+      let need = 0;
+      for (let k = 0; k < 27; k++) {
+        const r = c[k] % 3;
+        if (r === 1) need += 2;
+        else if (r === 2) need += 1;
+      }
+      return need <= w && (w - need) % 3 === 0;
+    };
+    for (let i = 0; i < 27; i++) {
+      if (c[i] >= 2) {
+        c[i] -= 2;
+        const ok = tripletsWithWild(wild);
+        c[i] += 2;
+        if (ok) return true;
+      }
+    }
+    if (wild >= 1) {
+      for (let i = 0; i < 27; i++) {
+        if (c[i] >= 1) {
+          c[i] -= 1;
+          const ok = tripletsWithWild(wild - 1);
+          c[i] += 1;
+          if (ok) return true;
+        }
+      }
+    }
+    if (wild >= 2 && tripletsWithWild(wild - 2)) return true;
     return false;
   }
 
@@ -119,27 +243,65 @@
     qing: '清一色', qingduizi: '清大对', qingqidui: '清七对', qinglongqidui: '清龙七对'
   };
 
-  function shapeOf(c, melds, pure) {
+  /** 不加财神的牌型判定（wild = 已按财神用的张数） */
+  function shapeOf(c, melds, wild) {
+    wild = wild || 0;
     const sets = 4 - melds.length;
-    if (melds.length === 0 && isSevenPairs(c)) {
-      return c.some((x) => x === 4) ? 'longqidui' : 'qidui';
+    const cands = [];
+    if (melds.length === 0 && isSevenPairs(c, wild)) {
+      let quad = false;
+      for (let i = 0; i < 27; i++) if (c[i] >= 4) quad = true;
+      cands.push(quad ? 'longqidui' : 'qidui');
     }
-    if (!isWinShape(c, sets)) return null;
-    return allTripletsShape(c, sets) ? 'duizi' : 'ping';
+    if (isWinShape(c, sets, wild)) {
+      cands.push(allTripletsShape(c, sets, wild) ? 'duizi' : 'ping');
+    }
+    if (!cands.length) return null;
+    let best = cands[0];
+    for (const s of cands) if (PATTERN_POINTS[s] > PATTERN_POINTS[best]) best = s;
+    return best;
   }
 
   /**
    * 判定胡牌并给出牌型。
    * @param {number[]} hand 手牌
    * @param {Array} melds 副露 [{type:'peng'|'gang'|'angang', tile, tiles, from}]
+   * @param {string|Object} [mode] 玩法模式，默认取当前模式
    */
-  function winInfo(hand, melds) {
+  function winInfo(hand, melds, mode) {
     melds = melds || [];
+    const M = resolveMode(mode);
     if (hand.length !== 14 - melds.length * 3) return null;
+
+    if (M.wild === null || M.wild === undefined) return plainWin(hand, melds, 0, null);
+
+    // 幺筒既能当财神，也能当真一筒用：枚举有几张当财神，取分最高的拆法
+    let jokers = 0;
+    for (const t of hand) if (t === M.wild) jokers++;
+    let best = null;
+    let bestTotal = -1;
+    for (let k = 0; k <= jokers; k++) {
+      const rest = hand.slice();
+      for (let i = 0; i < k; i++) rest.splice(rest.indexOf(M.wild), 1);
+      const r = plainWin(rest, melds, k, M);
+      if (!r) continue;
+      r.joker = k;
+      r.hard = k === 0;
+      r.hardBonus = k === 0 ? BONUS.hardHu : 0;
+      const total = r.points + r.hardBonus;
+      if (total > bestTotal) { bestTotal = total; best = r; }
+    }
+    return best;
+  }
+
+  function plainWin(hand, melds, wild, M) {
     const c = counts(hand);
     const all = hand.concat(...melds.map((m) => m.tiles));
-    const pure = all.every((t) => suit(t) === suit(all[0]));
-    const shape = shapeOf(c, melds, pure);
+    const real = (M && M.wild !== null && M.wild !== undefined)
+      ? all.filter((t) => t !== M.wild)
+      : all;
+    const pure = real.length > 0 && real.every((t) => suit(t) === suit(real[0]));
+    const shape = shapeOf(c, melds, wild);
     if (!shape) return null;
     const pattern = pure ? 'qing' + (shape === 'ping' ? '' : shape) : shape;
     const points = PATTERN_POINTS[pattern];
@@ -149,27 +311,27 @@
     };
   }
 
-  const isWin = (hand, melds) => !!winInfo(hand, melds);
+  const isWin = (hand, melds, mode) => !!winInfo(hand, melds, mode);
 
   /** 听牌张（手牌须为 3n+1 张） */
-  function tenpaiTiles(hand, melds) {
+  function tenpaiTiles(hand, melds, mode) {
     melds = melds || [];
     const out = [];
     if (hand.length !== 13 - melds.length * 3) return out;
     const c = counts(hand);
     for (let t = 0; t < 27; t++) {
       if (c[t] >= 4) continue;
-      if (winInfo(hand.concat(t), melds)) out.push(t);
+      if (winInfo(hand.concat(t), melds, mode)) out.push(t);
     }
     return out;
   }
 
   /** 查叫：叫牌者按「叫牌牌型的分值」结算，取所听牌中最高分 */
-  function tingValue(hand, melds) {
-    const tiles = tenpaiTiles(hand, melds);
+  function tingValue(hand, melds, mode) {
+    const tiles = tenpaiTiles(hand, melds, mode);
     let best = 0;
     for (const t of tiles) {
-      const info = winInfo(hand.concat(t), melds);
+      const info = winInfo(hand.concat(t), melds, mode);
       if (info && info.points > best) best = info.points;
     }
     return { tiles, points: best };
@@ -189,7 +351,9 @@
   CHICKEN_BASE[WUGU] = 2;
 
   /** 本局的鸡与分值：幺鸡、乌骨鸡、翻牌鸡（翻牌的下一张，撞上常鸡即为金鸡） */
-  function chickenSet(flip) {
+  function chickenSet(flip, mode) {
+    const M = resolveMode(mode);
+    if (!M.chickens) return [];
     const list = [
       { tile: YAOJI, rate: CHICKEN_BASE[YAOJI], kind: '幺鸡' },
       { tile: WUGU, rate: CHICKEN_BASE[WUGU], kind: '乌骨鸡' }
@@ -217,6 +381,7 @@
   /** 统计某人（手牌 + 副露 + 自己牌河）的鸡分 */
   function chickenPoints(hand, melds, discards, chickens) {
     let n = 0;
+    if (!chickens || !chickens.length) return 0;
     const hit = (t) => {
       const c = chickens.find((x) => x.tile === t);
       if (c) n += c.rate;
@@ -235,16 +400,21 @@
     baoting: 3,    // 报听（硬报）后胡牌
     tianting: 6,   // 天听：起手就听牌并报听（取代报听的 3 分）
     qianggang: 5,  // 抢杠胡（另由杠家包三家）
-    repao: 1       // 热炮：杠后打出的牌被胡
+    repao: 1,      // 热炮：杠后打出的牌被胡
+    hardHu: 5      // 冲幺筒模式：硬胡（一张替身都没用）
   };
 
+  // 冲幺筒：本局第 1 / 第 2 张被打出的幺筒，打牌者向其他三家各收多少分（先冲先赚）
+  const CHONG_POINTS = [5, 3];
+
   return {
-    SUITS, CN, YAOJI, WUGU,
+    SUITS, CN, YAOJI, WUGU, YITONG,
     suit, rank, tileName, nextTile,
     createWall, shuffle, counts, sortHand,
     canFormSets, isWinShape, isSevenPairs, allTripletsShape,
     winInfo, isWin, tenpaiTiles, tingValue, canChiPao,
     chickenSet, chickenRate, chickenPoints, CHICKEN_BASE,
-    PATTERN_POINTS, PATTERN_NAMES, BONUS
+    PATTERN_POINTS, PATTERN_NAMES, BONUS, CHONG_POINTS,
+    MODES, MODE_ORDER, resolveMode, setMode, currentMode, isWildTile
   };
 });

@@ -1,13 +1,30 @@
-/* 临时压力测试：多局随机对局，检查异常与零和（不入库） */
+/* 压力测试：多局随机对局，检查异常与零和
+ * 用法：node scripts/sim.cjs [--mode=classic|yitong] [--rounds=200]
+ */
 const { Game } = require('../src/js/game.js');
 const AI = require('../src/js/ai.js');
+const R = require('../src/js/rules.js');
 
-const stats = { rounds: 0, errors: 0, ting: 0, tianTing: 0, rob: 0, multi: 0, repao: 0, tianhu: 0, dihu: 0, baoting: 0, hu: 0, draw: 0 };
+const arg = (name, def) => {
+  const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
+  return hit ? hit.split('=')[1] : def;
+};
+
+const modeId = arg('mode', 'classic');
+const totalRounds = parseInt(arg('rounds', '200'), 10);
+const MODE = R.resolveMode(modeId);
+
+const stats = {
+  mode: MODE.id, rounds: 0, errors: 0, hu: 0, draw: 0, multi: 0, robKong: 0,
+  repao: 0, tianhu: 0, dihu: 0, baoting: 0, ting: 0, tianTing: 0,
+  chong: 0, hard: 0, soft: 0, huPoints: 0
+};
 
 (async () => {
-  const g = new Game({ speed: 90, dealer: 0 });
+  const g = new Game({ speed: 90, dealer: 0, mode: MODE.id });
   g.on('error', (e) => { stats.errors++; console.error('ERR', e); });
   g.on('ting', (i) => { stats.ting++; if (i.tianTing) stats.tianTing++; });
+  g.on('chong', () => { stats.chong++; });
 
   g.on('prompt', (a) => {
     setTimeout(() => {
@@ -22,7 +39,7 @@ const stats = { rounds: 0, errors: 0, ting: 0, tianTing: 0, rob: 0, multi: 0, re
       if (a.self && a.self.hu) { g.humanHu(); return; }
       if (a.self.angang.length && Math.random() < 0.6) { g.humanGang('angang', a.self.angang[0]); return; }
       if (a.self.bugang.length && Math.random() < 0.6) { g.humanGang('bugang', a.self.bugang[0]); return; }
-      g.humanDiscard(AI.chooseDiscard(g.players[0].hand, g.players[0].melds));
+      g.humanDiscard(g.aiDiscard(0));
     }, 0);
   });
 
@@ -31,8 +48,11 @@ const stats = { rounds: 0, errors: 0, ting: 0, tianTing: 0, rob: 0, multi: 0, re
     if (!res.draw) {
       stats.hu++;
       if (res.winners.length > 1) stats.multi++;
-      if (res.robKong) stats.rob++;
+      if (res.robKong) stats.robKong++;
       for (const w of res.winners) {
+        stats.huPoints = Math.max(stats.huPoints, w.points);
+        if (w.hard === true) stats.hard++;
+        if (w.hard === false) stats.soft++;
         if (w.extra.some((x) => x.indexOf('热炮') === 0)) stats.repao++;
         if (w.extra.some((x) => x.indexOf('天胡') === 0)) stats.tianhu++;
         if (w.extra.some((x) => x.indexOf('地胡') === 0)) stats.dihu++;
@@ -42,7 +62,7 @@ const stats = { rounds: 0, errors: 0, ting: 0, tianTing: 0, rob: 0, multi: 0, re
     if (resolveEnd) { const r = resolveEnd; resolveEnd = null; r(); }
   });
 
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < totalRounds; i++) {
     const done = new Promise((r) => { resolveEnd = r; });
     g.startRound();
     await done;

@@ -13,16 +13,17 @@
         <div class="brand-tile"><span>贵</span></div>
         <div class="brand-text">
           <strong>贵州麻将</strong>
-          <span>贵阳捉鸡 · 单机版</span>
+          <span id="brand-sub">游戏大厅 · 单机版</span>
         </div>
       </div>
       <div class="tb-actions">
         <button id="btn-sound" class="tb-btn" title="开关音效">音效 开</button>
-        <button id="btn-speed" class="tb-btn" title="电脑出牌速度">速度 中</button>
-        <button id="btn-auto" class="tb-btn" title="听牌后自动摸打（碰、杠、胡仍由你决定）">自动摸打 关</button>
+        <button id="btn-speed" class="tb-btn game-only" title="电脑出牌速度">速度 中</button>
+        <button id="btn-auto" class="tb-btn game-only" title="听牌后自动摸打（碰、杠、胡仍由你决定）">自动摸打 关</button>
         <button id="btn-rules" class="tb-btn" title="查看规则">规则</button>
-        <button id="btn-reset-scores" class="tb-btn" title="清空四家累计分数">清空分数</button>
-        <button id="btn-new" class="tb-btn" title="重新开一局">新的一局</button>
+        <button id="btn-reset-scores" class="tb-btn game-only" title="清空当前玩法牌桌上的四家累计分数">清空分数</button>
+        <button id="btn-new" class="tb-btn game-only" title="重新开一局">新的一局</button>
+        <button id="btn-lobby" class="tb-btn lobby-btn" title="回到游戏大厅">大厅</button>
         <div class="win-btns">
           <button id="btn-min" class="win-btn" title="最小化">–</button>
           <button id="btn-max" class="win-btn" title="最大化">□</button>
@@ -30,6 +31,8 @@
         </div>
       </div>
     </header>
+
+    <div id="lobby" class="hidden"></div>
 
     <main id="stage-wrap">
       <div id="stage">
@@ -92,6 +95,8 @@
   <script src="js/ai.js"></script>
   <script src="js/game.js"></script>
   <script src="js/tiles.js"></script>
+  <script src="js/profile.js"></script>
+  <script src="js/lobby.js"></script>
   <script src="js/ui.js"></script>
 </body>
 </html>
