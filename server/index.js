@@ -15,7 +15,19 @@ const MIME = {
   '.json': 'application/json; charset=utf-8'
 };
 
+/* 模块级：当前运行实例的 stats 取值器（createMahjongServer 内注册），供 /stats 路由用 */
+let liveStats = () => ({ online: 0, rooms: 0 });
+
 function serveStatic(req, res) {
+  if (req.url.split('?')[0] === '/stats') {
+    // 大厅轮询在线人数：不建 WS、不影响「先进大厅不自动连服」的设计
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'
+    });
+    res.end(JSON.stringify(liveStats()));
+    return;
+  }
   if (!['GET', 'HEAD'].includes(req.method)) {
     res.writeHead(405, { Allow: 'GET, HEAD' }); res.end(); return;
   }
@@ -46,6 +58,7 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
   const send = (ws, obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
   const onlineCount = () => [...players.values()].filter((p) => p.ws && p.ws.readyState === 1).length;
   const stats = () => ({ online: onlineCount(), rooms: rooms.size });
+  liveStats = stats; // 注册到模块级，供 HTTP /stats 路由读取
   // 连接 / 断开 / 恢复 / 踢除都会改变在线人数；广播给所有活跃连接，供大厅显示。
   function broadcastStats() {
     const payload = JSON.stringify({ t: 'stats', ...stats() });

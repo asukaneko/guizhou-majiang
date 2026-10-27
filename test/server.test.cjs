@@ -369,3 +369,17 @@ test('在线人数：welcome 首推、连接/断开/恢复广播 stats', async (
   await a.wait('stats', (m) => m.online === 2);
   b2.close(); a.ws.close();
 });
+
+test('HTTP /stats 返回在线人数与房间数（无需 WS 会话）', async (t) => {
+  const app = await server(t);
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const res = await fetch(base + '/stats');
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { online: 0, rooms: 0 });
+  const c = await client(app);
+  c.send({ t: 'create' });
+  await c.wait('joined');
+  const res2 = await fetch(base + '/stats');
+  assert.deepEqual(await res2.json(), { online: 1, rooms: 1 });
+  c.ws.close();
+});

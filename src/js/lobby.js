@@ -178,7 +178,10 @@
     const next = s && typeof s.online === 'number' ? { online: s.online, rooms: s.rooms || 0 } : null;
     const prev = serverStats;
     serverStats = next;
-    if (JSON.stringify(prev) !== JSON.stringify(next) && node && !node.classList.contains('hidden')) render();
+    if (JSON.stringify(prev) === JSON.stringify(next)) return;
+    // 大厅可见时只就地更新数字，避免整卡重渲染打断交互；隐藏时下次 render 自然带上
+    const badge = node && !node.classList.contains('hidden') ? node.querySelector('#ol-server-stats') : null;
+    if (badge) badge.innerHTML = onlineStatHtml();
   }
 
   function onlineStatHtml() {
@@ -286,11 +289,30 @@
     if (hooks.onRender) hooks.onRender();
   }
 
+  let statsTimer = null;
+  async function fetchServerStats() {
+    try {
+      const r = await fetch('/stats', { cache: 'no-store' });
+      if (!r.ok) return;
+      const s = await r.json();
+      if (s && typeof s.online === 'number') setServerStats(s);
+    } catch { /* 服务器没开或本地练习模式，静默保持现状 */ }
+  }
+  function startStatsPolling() {
+    if (statsTimer) return;
+    fetchServerStats();
+    statsTimer = setInterval(fetchServerStats, 20000);
+  }
+  function stopStatsPolling() {
+    if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+  }
+
   function show() {
     if (!node) return;
     node.classList.remove('hidden');
     document.body.classList.add('in-lobby');
     render();
+    startStatsPolling();
   }
 
   function hide() {
@@ -298,6 +320,7 @@
     renaming = false;
     node.classList.add('hidden');
     document.body.classList.remove('in-lobby');
+    stopStatsPolling();
   }  function commitRename() {
     const input = node.querySelector('.pf-name-input');
     if (!input) return;

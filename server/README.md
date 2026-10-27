@@ -95,6 +95,8 @@ WebSocket 走同端口的 Upgrade。朋友不装任何东西，浏览器就能�
 | --- | --- | --- |
 | `welcome` | `{uid, online, rooms, resumeToken}` | 新连接的临时会话；有旧凭据时先 `resume`，恢复完成后再进行房间操作。`online` / `rooms` 为当前在线人数与房间数。 |
 | `stats` | `{online, rooms}` | 在线人数广播：连接、断开或恢复会话时推给所有活跃连接，供大厅显示。 |
+
+另有 HTTP `GET /stats` 端点返回同样的 `{online, rooms}` JSON：大厅在**未建立 WS 连接**时按 20 秒轮询该端点显示在线人数（不破坏「先进大厅不自动连服」的设计），已连 WS 时以 `stats` 推送为准。
 | `resumed` | `{uid,resumeToken}` | 已恢复旧会话；有房间时接着发送 `joined`、房间和快照。旧连接被替换并关闭。 |
 | `resume-failed` | `{uid,resumeToken}` | 旧会话已失效，使用这条消息给出的新会话。 |
 | `hello-ok` | `{name}` | 昵称已生效 |
@@ -223,7 +225,7 @@ npm run e2e:ui      # UI 级端到端：Electron 真窗口点完一局（含结�
 `test/online.test.cjs` 直接实例化 `Room` / `OnlineGame`（用假 ws 桩），不经网络，
 适合在改动对局逻辑后快速回归；`scripts/e2e*.cjs` 走真实 WebSocket，验证整条链路。
 
-`test/server.test.cjs`（14 项）覆盖真实连接、会话恢复、房间原子性、心跳、HTTP 错误处理、完桌配置、原房重新开桌、累计分生命周期及在线人数广播；
+`test/server.test.cjs`（15 项）覆盖真实连接、会话恢复、房间原子性、心跳、HTTP 错误处理、完桌配置、原房重新开桌、累计分生命周期、在线人数广播及 /stats 端点；
 `test/web.test.cjs`（6 项）覆盖横屏计算、全屏失败兜底、结算去重、四家牌面查看与返回、网络连接隔离与网页脚本消息集成。
 `npm run e2e` 在随机空闲端口创建真实 HTTP/WS 服务，两种玩法同时开桌，各打两局，中途恢复掉线座位。
 网页脚本测试使用 DOM 桩，不能替代手机真机的视觉与触摸验收。
