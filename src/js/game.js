@@ -157,7 +157,7 @@
                 tianhu: this.isTianHu(cur), dihu: this.isDiHu(cur, true)
               });
             }
-            const gang = AI.decideSelfGang(self);
+            const gang = AI.decideSelfGang(self, pl, this.mode, this.aiContext(cur));
             if (gang) {
               await this.doKong(cur, gang.type, gang.tile);
               if (this.phase !== 'playing') return;
@@ -317,23 +317,26 @@
 
     botDecision(p, self) {
       if (self && self.hu) return { type: 'hu' };
-      const gang = self && AI.decideSelfGang(self);
+      const gang = self && AI.decideSelfGang(self, this.players[p], this.mode, this.aiContext(p));
       if (gang) return { type: 'gang', gangType: gang.type, tile: gang.tile };
       return { type: 'discard', tile: this.aiDiscard(p) };
     }
 
-    /** 电脑出牌：冲幺筒还有分可拿时，会主动把幺筒冲出去抢分 */
+    /** 电脑决策只接收本人手牌和公开信息。 */
     aiDiscard(p) {
       const pl = this.players[p];
-      const M = this.mode;
-      if (M.wild !== null && M.wild !== undefined
-        && this.chongCount < R.CHONG_POINTS.length
-        && pl.hand.indexOf(M.wild) >= 0) {
-        // 冲出去立刻收三家分：不影响听牌就冲，否则也会有一半概率去抢
-        const rest = removeTiles(pl.hand, M.wild, 1);
-        if (R.tenpaiTiles(rest, pl.melds, M).length > 0 || Math.random() < 0.45) return M.wild;
-      }
-      return AI.chooseDiscard(pl.hand, pl.melds, M);
+      return AI.chooseDiscard(pl.hand, pl.melds, this.mode, this.aiContext(p));
+    }
+
+    aiContext(p) {
+      const players = this.players.map((pl, i) => ({
+        id: i, discards: pl.discards.slice(), tingDeclared: !!pl.tingDeclared,
+        melds: pl.melds.map((m) => m.type === 'angang' && i !== p
+          ? { type: m.type, tile: null, tiles: [] }
+          : { type: m.type, tile: m.tile, tiles: m.tiles.slice() })
+      }));
+      return { seat: p, players, seen: R.seenCountsOf(this.players[p].hand, players),
+        wallLeft: this.wall.length, chongCount: this.chongCount, firstChicken: this.firstChicken };
     }
 
     /** 程序代打：先亮出要打哪张，再落子。sticky = 报听后不可撤销 */
@@ -390,7 +393,7 @@
 
     /** 某人能看到的牌张数：自己手牌 + 四家副露 + 四家牌河 */
     seenCounts(p) {
-      return R.seenCountsOf(this.players[p].hand, this.players);
+      return this.aiContext(p).seen;
     }
 
     setAuto(on) {
@@ -401,7 +404,7 @@
         if (a.kind === 'discard') {
           this.awaiting = null;
           this.playAuto(0, a.self, this.botDecision(0, a.self), 380, false).then(a.resolve);
-        } else if (a.kind === 'claim') a.resolve(AI.decideClaim(a.options, this.players[0], a.tile));
+        } else if (a.kind === 'claim') a.resolve(AI.decideClaim(a.options, this.players[0], a.tile, this.mode, this.aiContext(0)));
       }
       this.emitState();
       return this.autoPlay;
@@ -417,10 +420,19 @@
 
     /* ---------------- 副露 ---------------- */
 
+    takeDiscard(from, tile) {
+      if (this.lastDiscard && this.lastDiscard.p === from && this.lastDiscard.tile === tile) {
+        const river = this.players[from].discards;
+        if (river[river.length - 1] === tile) river.pop();
+        this.lastDiscard = null;
+      }
+    }
+
     doPeng(p, tile, from) {
       const pl = this.players[p];
       pl.hand = removeTiles(pl.hand, tile, 2);
       pl.melds.push({ type: 'peng', tile, tiles: [tile, tile, tile], from });
+      this.takeDiscard(from, tile);
       pl.mustDiscard = true;
       pl.said = '碰';
       this.turn = p;
@@ -457,6 +469,7 @@
         pl.hand = removeTiles(pl.hand, tile, 3);
         pl.melds.push({ type: 'gang', tile, tiles: [tile, tile, tile, tile], from });
         payers = [from];
+        this.takeDiscard(from, tile);
       }
       pl.hand = R.sortHand(pl.hand);
       pl.said = type === 'angang' ? '暗杠' : type === 'bugang' ? '补杠' : '明杠';
@@ -531,7 +544,7 @@
       }
       for (const cl of claims) {
         if (humanClaim && cl.p === humanClaim.p) continue;
-        const a = AI.decideClaim(cl.acts, this.players[cl.p], tile);
+        const a = AI.decideClaim(cl.acts, this.players[cl.p], tile, this.mode, this.aiContext(cl.p));
         if (a) picks.push({ p: cl.p, type: a, k: cl.k });
       }
       if (!picks.length) return null;

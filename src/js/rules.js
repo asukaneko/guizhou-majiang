@@ -127,17 +127,19 @@
       c[i] += useReal;
       if (ok) return true;
     }
-    // 顺子：i, i+1, i+2，缺的位置用财神补
-    if (i % 9 <= 6) {
+    // 财神也能补顺子前面的缺张，例如「八万、九万、财神」组成七八九万。
+    const suitBase = Math.floor(i / 9) * 9;
+    for (let rank = Math.max(0, i % 9 - 2); rank <= Math.min(6, i % 9); rank++) {
+      const others = [suitBase + rank, suitBase + rank + 1, suitBase + rank + 2].filter((t) => t !== i);
       for (let a = 0; a <= 1; a++) {
         for (let b = 0; b <= 1; b++) {
           const need = a + b;
           if (need > wild) continue;
-          if (!a && c[i + 1] < 1) continue;
-          if (!b && c[i + 2] < 1) continue;
-          c[i]--; if (!a) c[i + 1]--; if (!b) c[i + 2]--;
+          if (!a && c[others[0]] < 1) continue;
+          if (!b && c[others[1]] < 1) continue;
+          c[i]--; if (!a) c[others[0]]--; if (!b) c[others[1]]--;
           const ok = canFormSets(c, sets - 1, wild - need);
-          c[i]++; if (!a) c[i + 1]++; if (!b) c[i + 2]++;
+          c[i]++; if (!a) c[others[0]]++; if (!b) c[others[1]]++;
           if (ok) return true;
         }
       }

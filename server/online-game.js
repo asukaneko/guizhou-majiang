@@ -113,7 +113,7 @@ class OnlineGame extends Game {
     for (const cl of claims) {
       const pl = this.players[cl.p];
       if (this.isBotControlled(cl.p)) {
-        const a = AI.decideClaim(cl.acts, pl, tile);
+        const a = AI.decideClaim(cl.acts, pl, tile, this.mode, this.aiContext(cl.p));
         if (a) picks.push({ p: cl.p, type: a, k: cl.k });
       } else if (pl.tingDeclared && cl.acts.includes('hu')) {
         picks.push({ p: cl.p, type: 'hu', k: cl.k });   // 报听的人见炮就胡
@@ -186,7 +186,7 @@ class OnlineGame extends Game {
       const pending = this.prompts.get(p);
       if (pl.botPlay && pending) {
         const decision = pending.kind === 'claim'
-          ? AI.decideClaim(pending.options, pl, pending.tile)
+          ? AI.decideClaim(pending.options, pl, pending.tile, this.mode, this.aiContext(p))
           : this.botDecision(p, pending.self);
         this.finishPrompt(p, decision);
       }
