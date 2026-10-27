@@ -36,6 +36,7 @@
         id: i,
         name: SEAT_NAMES[i],
         isHuman: i === 0,
+        botPlay: i === 0 && !!opts.autoPlay,
         hand: [],
         melds: [],
         discards: [],
@@ -148,7 +149,7 @@
           await this.delay(200);
           if (this.phase !== 'playing') return;
 
-          if (!pl.isHuman) {
+          if (this.isBotControlled(cur)) {
             const self = this.selfActions(cur);
             if (self.hu) {
               return this.settleWin([{ p: cur, winTile: tile }], {
@@ -299,18 +300,26 @@
       if (!pl.isHuman) {
         return this.delay(360).then(() => {
           if (this.phase !== 'playing') return { type: 'none' };
-          if (pl.isHuman) return this.askDiscard(p, this.selfActions(p));
+          if (!this.isBotControlled(p)) return this.askDiscard(p, this.selfActions(p));
           const tile = this.aiDiscard(p);
           return { type: 'discard', tile };
         });
       }
 
-      // 自动摸打：听牌后由程序替你摸打
-      if (this.autoPlay) {
-        const auto = this.autoDecision(p, self);
-        if (auto) return this.playAuto(p, self, auto, 380, false);
-      }
+      if (pl.botPlay) return this.playAuto(p, self, this.botDecision(p, self), 380, false);
       return this.waitHumanDiscard(p, self);
+    }
+
+    isBotControlled(p) {
+      const pl = this.players[p];
+      return !pl.isHuman || !!pl.botPlay;
+    }
+
+    botDecision(p, self) {
+      if (self && self.hu) return { type: 'hu' };
+      const gang = self && AI.decideSelfGang(self);
+      if (gang) return { type: 'gang', gangType: gang.type, tile: gang.tile };
+      return { type: 'discard', tile: this.aiDiscard(p) };
     }
 
     /** 电脑出牌：冲幺筒还有分可拿时，会主动把幺筒冲出去抢分 */
@@ -331,6 +340,7 @@
     playAuto(p, self, auto, ms, sticky) {
       const awaiting = {
         kind: 'discard', player: p, self, auto: true,
+        autoAction: auto.type, autoGangType: auto.gangType,
         ting: this.players[p].tingDeclared,
         autoTile: auto.type === 'hu' ? null : auto.tile
       };
@@ -338,7 +348,7 @@
       this.emitState();
       return this.delay(ms).then(() => {
         if (this.phase !== 'playing') return { type: 'none' };
-        if (!sticky && !this.autoPlay) return this.waitHumanDiscard(p, self); // 中途关掉自动摸打
+        if (!sticky && !this.isBotControlled(p)) return this.askDiscard(p, this.selfActions(p));
         if (this.awaiting === awaiting) this.awaiting = null;
         this.emitState();
         return auto;
@@ -346,12 +356,12 @@
     }
 
     waitHumanDiscard(p, self) {
-      this.awaiting = { kind: 'discard', player: p, self };
+      const awaiting = { kind: 'discard', player: p, self };
+      const promise = new Promise((resolve) => { awaiting.resolve = resolve; });
+      this.awaiting = awaiting;
       this.emitState();
-      return new Promise((resolve) => {
-        this.awaiting.resolve = resolve;
-        this.emit('prompt', this.awaiting);
-      });
+      if (this.awaiting === awaiting) this.emit('prompt', awaiting);
+      return promise;
     }
 
     /**
@@ -363,7 +373,7 @@
       return R.bestTingOf(pl.hand, pl.melds, this.seenCounts(p), pl.justDrawn, this.mode);
     }
 
-    /** 自动摸打的选择：能自摸就胡，听牌就打一张保持听牌的，没听牌返回 null */
+    /** 超时优先选择：能自摸就胡，听牌则保持听牌，散牌交给兜底策略。 */
     autoDecision(p, self) {
       const pl = this.players[p];
       if (pl.hand.length !== 14 - pl.melds.length * 3) return null;
@@ -385,19 +395,24 @@
 
     setAuto(on) {
       this.autoPlay = !!on;
-      // 正等着你出牌时打开自动摸打：立刻替你打（不用再等下一巡）
+      this.players[0].botPlay = this.autoPlay;
       const a = this.awaiting;
-      if (this.autoPlay && a && a.kind === 'discard' && a.player === 0 && !a.auto && a.resolve) {
-        const auto = this.autoDecision(0, a.self);
-        if (auto) {
+      if (this.autoPlay && a && a.player === 0 && !a.auto && a.resolve) {
+        if (a.kind === 'discard') {
           this.awaiting = null;
-          this.emitState();
-          a.resolve(auto);
-          return true;
-        }
+          this.playAuto(0, a.self, this.botDecision(0, a.self), 380, false).then(a.resolve);
+        } else if (a.kind === 'claim') a.resolve(AI.decideClaim(a.options, this.players[0], a.tile));
       }
       this.emitState();
       return this.autoPlay;
+    }
+
+    abort() {
+      this.phase = 'ended';
+      const a = this.awaiting;
+      this.awaiting = null;
+      if (a && a.resolve) a.resolve(a.kind === 'claim' ? null : { type: 'none' });
+      this.emitState();
     }
 
     /* ---------------- 副露 ---------------- */
@@ -506,7 +521,7 @@
       if (!claims.length) return null;
 
       const picks = [];
-      const humanClaim = claims.find((c) => this.players[c.p].isHuman);
+      const humanClaim = claims.find((c) => !this.isBotControlled(c.p));
       if (humanClaim) {
         // 报听的人见炮就胡
         const humanPick = this.players[0].tingDeclared && humanClaim.acts.includes('hu')
@@ -515,7 +530,7 @@
         if (humanPick) picks.push({ p: 0, type: humanPick, k: humanClaim.k });
       }
       for (const cl of claims) {
-        if (this.players[cl.p].isHuman) continue;
+        if (humanClaim && cl.p === humanClaim.p) continue;
         const a = AI.decideClaim(cl.acts, this.players[cl.p], tile);
         if (a) picks.push({ p: cl.p, type: a, k: cl.k });
       }
@@ -546,7 +561,7 @@
       if (!claims.length) return [];
 
       const robbers = [];
-      const human = claims.find((c) => this.players[c.p].isHuman);
+      const human = claims.find((c) => !this.isBotControlled(c.p));
       if (human) {
         if (this.players[0].tingDeclared) robbers.push({ p: 0, winTile: tile });
         else {
@@ -555,7 +570,7 @@
         }
       }
       for (const c of claims) {
-        if (this.players[c.p].isHuman) continue;
+        if (human && c.p === human.p) continue;
         robbers.push({ p: c.p, winTile: tile });
       }
       if (!robbers.length) return [];
@@ -568,9 +583,7 @@
         kind: 'claim', player: 0, tile, from, options: claim.acts,
         info: claim.info, rob: !!claim.rob
       };
-      this.awaiting = awaiting;
-      this.emitState();
-      return new Promise((resolve) => {
+      const promise = new Promise((resolve) => {
         let done = false;
         const finish = (v) => {
           if (done) return;
@@ -580,8 +593,11 @@
           resolve(v);
         };
         awaiting.resolve = finish;
-        this.emit('prompt', awaiting);
       });
+      this.awaiting = awaiting;
+      this.emitState();
+      if (this.awaiting === awaiting) this.emit('prompt', awaiting);
+      return promise;
     }
 
     /* ---------------- 玩家操作 ---------------- */

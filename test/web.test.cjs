@@ -120,6 +120,7 @@ test('网页脚本集成：大厅入口、联机入桌自动横屏、快照渲�
       };
     }
     addEventListener(name, fn) { this.events.set(name, fn); }
+    setAttribute(name, value) { this[name] = value; }
     querySelector(s) { if (!this.children.has(s)) this.children.set(s, new Element()); return this.children.get(s); }
     querySelectorAll() { return []; }
     appendChild() {}
@@ -182,6 +183,13 @@ test('网页脚本集成：大厅入口、联机入桌自动横屏、快照渲�
   assert.ok(doc.body.classList.contains('in-game'));
   assert.ok(doc.body.classList.contains('rotate-game'));
   receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [] });
+  assert.equal(elements.get('#btn-auto').textContent, '人机代打 关');
+  assert.equal(elements.get('#btn-new').disabled, true, '联机中本局结束后才能开下一局');
+  elements.get('#btn-auto').events.get('click')();
+  assert.deepEqual(JSON.parse(JSON.stringify(ws.sent.at(-1))), { t: 'action', action: { type: 'autoplay', enabled: true } });
+  g.players[0].botPlay = true;
+  receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [] });
+  assert.equal(elements.get('#btn-auto').textContent, '人机代打 开');
   assert.match(seats[0].querySelector('.hand-main').innerHTML, /role="button"/);
   assert.match(seats[1].querySelector('.plate').innerHTML, /&lt;img/);
   assert.equal((seats[2].querySelector('.melds').innerHTML.match(/backface/g) || []).length, 4);
@@ -197,13 +205,23 @@ test('网页脚本集成：大厅入口、联机入桌自动横屏、快照渲�
   assert.equal(elements.get('#overlay').classList.contains('hidden'), false);
   receive({ t: 'room', room: { ...room, host: false, running: false } });
   assert.equal(elements.get('#overlay').querySelector('[data-act="next"]').disabled, true);
+  assert.equal(elements.get('#btn-new').disabled, true);
   receive({ t: 'room', room: { ...room, host: true, running: false } });
   assert.equal(elements.get('#overlay').querySelector('[data-act="next"]').disabled, false);
+  assert.equal(elements.get('#btn-new').disabled, false);
+  elements.get('#btn-new').events.get('click')();
+  assert.equal(ws.sent.at(-1).t, 'next');
   receive({ t: 'room', room: { ...room, roundNo: 2 } });
   assert.ok(elements.get('#overlay').classList.contains('hidden'));
   ctx.GZUI.showLobby();
   assert.equal(doc.body.classList.contains('rotate-game'), false);
   ctx.__ui.enterMode('classic');
   assert.ok(doc.body.classList.contains('rotate-game'), '练习桌也自动横屏');
+  const previous = ctx.__game;
+  assert.equal(elements.get('#btn-new').disabled, false);
+  elements.get('#btn-new').events.get('click')();
+  assert.notEqual(ctx.__game, previous);
+  assert.equal(previous.phase, 'ended');
+  assert.equal(ctx.__game.roundNo, previous.roundNo + 1);
   ctx.__game.phase = 'ended';
 });

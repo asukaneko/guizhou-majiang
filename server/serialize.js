@@ -109,6 +109,7 @@ function snapshot(game, forSeat) {
       id: rotateSeat(i, forSeat),
       name: p.name,
       isHuman: !!p.isHuman,
+      botPlay: !!p.botPlay,
       isBot: !p.isHuman,
       hand: mine ? p.hand.slice() : [],
       handCount: p.hand.length,
@@ -136,11 +137,12 @@ function snapshot(game, forSeat) {
       rob: !!prompt.rob
     };
   } else if (game.awaiting && game.awaiting.auto && game.awaiting.player === forSeat) {
-    // 报听锁牌的自动摸打：给客户端一个展示用的 awaiting
+    // 报听锁牌和人机代打：向本人展示即将执行的操作。
     const a = game.awaiting;
     awaiting = {
       kind: 'discard', player: 0, auto: true, ting: !!a.ting,
       autoTile: a.autoTile !== undefined ? a.autoTile : null,
+      autoAction: a.autoAction, autoGangType: a.autoGangType,
       self: a.self || { hu: null, angang: [], bugang: [] }
     };
   }
@@ -166,7 +168,7 @@ function snapshot(game, forSeat) {
       : null,
     players,
     awaiting,
-    autoPlay: false,
+    autoPlay: !!game.players[forSeat].botPlay,
     result: publicResult(game, forSeat),
     totalRounds: game.totalRounds || 0
   };

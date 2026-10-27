@@ -27,6 +27,7 @@ class OnlineGame extends Game {
     (opts.seats || []).forEach((s, i) => {
       const pl = this.players[i];
       pl.isHuman = s.type !== 'bot';
+      pl.botPlay = !!s.botPlay;
       pl.uid = s.uid || null;
       if (s.name) pl.name = s.name;
     });
@@ -36,8 +37,8 @@ class OnlineGame extends Game {
 
   askDiscard(p, self) {
     const pl = this.players[p];
-    if (pl.isHuman && !pl.tingDeclared) return this.waitRemoteDiscard(p, self);
-    // 报听锁牌 / 机器人走原逻辑（自动摸打 / AI）
+    if (!this.isBotControlled(p) && !pl.tingDeclared) return this.waitRemoteDiscard(p, self);
+    // 报听锁牌、代打和机器人使用共享的自动操作逻辑。
     return super.askDiscard(p, self);
   }
 
@@ -111,7 +112,7 @@ class OnlineGame extends Game {
     const asks = [];
     for (const cl of claims) {
       const pl = this.players[cl.p];
-      if (!pl.isHuman) {
+      if (this.isBotControlled(cl.p)) {
         const a = AI.decideClaim(cl.acts, pl, tile);
         if (a) picks.push({ p: cl.p, type: a, k: cl.k });
       } else if (pl.tingDeclared && cl.acts.includes('hu')) {
@@ -153,7 +154,7 @@ class OnlineGame extends Game {
     const asks = [];
     for (const c of claims) {
       const pl = this.players[c.p];
-      if (pl.tingDeclared || !pl.isHuman) {
+      if (pl.tingDeclared || this.isBotControlled(c.p)) {
         // 报听的人见杠就抢；电脑能抢就抢
         robbers.push({ p: c.p, winTile: tile });
       } else {
@@ -173,15 +174,29 @@ class OnlineGame extends Game {
 
   /**
    * @param {number} p 服务器侧座位号
-   * @param {object} action {type:'discard'|'hu'|'gang'|'ting'|'claim'|'pass', ...}
+   * @param {object} action {type:'discard'|'hu'|'gang'|'ting'|'claim'|'pass'|'autoplay', ...}
    */
   remoteAction(p, action) {
-    if (this.phase !== 'playing') return { ok: false, err: '对局已经结束' };
     if (!action || typeof action !== 'object' || Array.isArray(action)) return { ok: false, err: '操作格式不正确' };
+    const pl = this.players[p];
+    if (!pl || !pl.isHuman) return { ok: false, err: '座位不可操作' };
+    if (action.type === 'autoplay') {
+      if (typeof action.enabled !== 'boolean') return { ok: false, err: '代打状态必须为布尔值' };
+      pl.botPlay = action.enabled;
+      const pending = this.prompts.get(p);
+      if (pl.botPlay && pending) {
+        const decision = pending.kind === 'claim'
+          ? AI.decideClaim(pending.options, pl, pending.tile)
+          : this.botDecision(p, pending.self);
+        this.finishPrompt(p, decision);
+      }
+      this.emitState();
+      return { ok: true };
+    }
+    if (this.phase !== 'playing') return { ok: false, err: '对局已经结束' };
     const prompt = this.prompts.get(p);
     if (!prompt) return { ok: false, err: '现在没有等你操作' };
     if (action.promptId !== undefined && action.promptId !== prompt.id) return { ok: false, err: '操作已过期，请按当前提示操作' };
-    const pl = this.players[p];
 
     if (prompt.kind === 'discard') {
       const self = prompt.self || {};

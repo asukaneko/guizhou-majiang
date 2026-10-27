@@ -52,6 +52,7 @@
       this.wallLeft = snap.wallLeft;
       this.players = snap.players;
       this.awaiting = snap.awaiting;
+      this.autoPlay = !!snap.autoPlay;
       this.lastDiscard = snap.lastDiscard;
       this.discardSeq = snap.discardSeq;
       this.discardHot = snap.discardHot;
@@ -111,6 +112,10 @@
 
     send(action) {
       return root.GZNet.send({ t: 'action', action: { ...action, promptId: this.awaiting && this.awaiting.id } });
+    }
+
+    setAuto(on) {
+      return root.GZNet.send({ t: 'action', action: { type: 'autoplay', enabled: !!on } });
     }
 
     humanDiscard(tile) {

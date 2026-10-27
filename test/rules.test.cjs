@@ -194,7 +194,7 @@ test('玩家侧吃碰杠胡路径', { timeout: 120000 }, async () => {
   console.log('玩家侧动作统计', stats);
 });
 
-test('自动摸打：听牌后打出刚摸到的那张，仍保持听牌', () => {
+test('听牌策略：优先刚摸到的那张，仍保持听牌', () => {
   const g = new Game({ autoPlay: true });
   const pl = g.players[0];
   pl.hand = handOf([
@@ -211,7 +211,7 @@ test('自动摸打：听牌后打出刚摸到的那张，仍保持听牌', () =>
   assert.deepEqual(R.tenpaiTiles(rest, []).sort((a, b) => a - b), [c(P, 6), c(P, 9)]);
 });
 
-test('自动摸打：能自摸就直接胡', () => {
+test('听牌策略：能自摸就直接胡', () => {
   const g = new Game({ autoPlay: true });
   const pl = g.players[0];
   pl.hand = handOf([
@@ -225,7 +225,7 @@ test('自动摸打：能自摸就直接胡', () => {
   assert.deepEqual(g.autoDecision(0, { hu: info }), { type: 'hu' });
 });
 
-test('自动摸打：没听牌时不接管，交回玩家手动出牌', () => {
+test('听牌策略：散牌返回空结果', () => {
   const g = new Game({ autoPlay: true });
   const pl = g.players[0];
   pl.hand = handOf([
@@ -238,17 +238,13 @@ test('自动摸打：没听牌时不接管，交回玩家手动出牌', () => {
   assert.equal(g.autoDecision(0, { hu: null }), null);
 });
 
-test('自动摸打：整局能自己跑完，只在没听牌时才要人操作', { timeout: 120000 }, async () => {
+test('人机代打：连续四局自动完成，手动提示次数为零', { timeout: 120000 }, async () => {
   const g = new Game({ speed: 90, dealer: 0, autoPlay: true });
   const errors = [];
   let manual = 0;
   g.on('error', (e) => errors.push(e));
   g.on('prompt', (a) => {
-    if (a.kind === 'discard') {
-      manual++;
-      // 会自动摸打的手不该弹出提示
-      assert.equal(g.autoDecision(0, a.self), null, '听牌时不应要求手动出牌');
-    }
+    manual++;
     setTimeout(() => {
       if (g.awaiting !== a) return;
       if (a.kind === 'discard') g.humanDiscard(g.players[0].hand[0]);
@@ -266,7 +262,7 @@ test('自动摸打：整局能自己跑完，只在没听牌时才要人操作',
     assert.equal(errors.length, 0, '不应出现对局异常');
     g.nextDealer = (g.dealer + 1) % 4;
   }
-  console.log('自动摸打时仍需手动出牌的次数', manual);
+  assert.equal(manual, 0, '人机代打应接管整局的所有操作');
 });
 
 /* ---------------- 报听 / 天听 / 天胡 / 地胡 / 抢杠 / 热炮 / 一炮多响 / 鸡 ---------------- */

@@ -84,6 +84,7 @@ WebSocket 走同端口的 Upgrade。朋友不装任何东西，浏览器就能�
 | `ting` | — | 等你出牌且听牌时；服务端替你打出保持听牌的那张并锁牌 |
 | `claim` | `{act:'hu'\|'peng'\|'gang'}` | 别人打出牌 / 补杠时的抢牌提示 |
 | `pass` | — | 放弃抢牌 |
+| `autoplay` | `{enabled:true\|false}` | 切换本人座位的人机代打，无需待办提示。出牌、碰杠胡和抢杠由服务端 AI 决策，关闭后交回手动；状态随原座位恢复并保留到下一局。 |
 
 ### 下行（服务端 → 客户端）
 
@@ -110,11 +111,13 @@ snap = {
   lastDiscard, discardSeq, discardHot, chongCount, firstChicken,
   players[4]: {                       // players[0] 就是你
     id, name, isHuman, isBot,
+    botPlay,                         // 真人座位是否启用人机代打
     hand: [...], handCount,           // hand 只有你有，别人是 []
     melds: [{type, tile, from, tiles}], // 暗杠只有杠家看得到牌面，别人 tiles=[]
     discards, said, tingDeclared, tianTing, justDrawn
   },
   awaiting,                           // 你的待办提示（没有则 null），见下
+  autoPlay,                           // 本人座位的代打开关
   result                              // 一局结束时的结算数据（无则 null）
 }
 ```
@@ -213,6 +216,7 @@ npm run e2e:ui      # UI 级端到端：Electron 真窗口点完一局（含结�
 `test/web.test.cjs`（6 项）覆盖横屏计算、全屏失败兜底、结算去重、网络连接隔离与网页脚本消息集成。
 `npm run e2e` 在随机空闲端口创建真实 HTTP/WS 服务，两种玩法同时开桌，各打两局，中途恢复掉线座位。
 网页脚本测试使用 DOM 桩，不能替代手机真机的视觉与触摸验收。
+`test/autoplay.test.cjs`（6 项）验证接管与取消、自动碰杠胡、联机各座位独立设置和真实 WS 连续两局代打。
 
 ## 边界与注意事项
 

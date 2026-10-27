@@ -109,23 +109,34 @@
     try { localStorage.setItem('gz-speed', String(speedIdx)); } catch (e) { /* ignore */ }
   }
 
-  /* ---------------- 自动摸打 ---------------- */
+  /* ---------------- 人机代打 ---------------- */
 
   let autoOn = false;
 
   function applyAuto() {
     if (game && !game.isRemote) game.setAuto(autoOn);
-    el.autoBtn.textContent = `自动摸打 ${autoOn ? '开' : '关'}`;
-    el.autoBtn.classList.toggle('on', autoOn);
-    try { localStorage.setItem('gz-auto', autoOn ? '1' : '0'); } catch (e) { /* ignore */ }
+    refreshControls();
+    try { localStorage.setItem('gz-bot-play', autoOn ? '1' : '0'); } catch (e) { /* ignore */ }
   }
 
   function toggleAuto() {
-    autoOn = !autoOn;
-    applyAuto();
-    toast(autoOn
-      ? '自动摸打已开启：听牌后自动替你摸打（碰、杠、胡仍由你点）'
-      : '自动摸打关闭，恢复手动出牌', 2600);
+    if (!game) return;
+    const enabled = !game.autoPlay;
+    if (game.isRemote) {
+      if (!game.setAuto(enabled)) { toast('连接恢复后可切换代打'); return; }
+    } else {
+      autoOn = enabled;
+      applyAuto();
+    }
+    toast(enabled ? '人机代打已开启，电脑接管出牌和碰杠胡' : '人机代打已关闭，恢复手动操作', 2400);
+  }
+
+  function refreshControls() {
+    const enabled = !!(game && game.autoPlay);
+    el.autoBtn.textContent = `人机代打 ${enabled ? '开' : '关'}`;
+    el.autoBtn.classList.toggle('on', enabled);
+    el.autoBtn.setAttribute('aria-pressed', String(enabled));
+    refreshRoundActions();
   }
 
   /* ---------------- 拼装 ---------------- */
@@ -156,7 +167,7 @@
     const badges = [];
     if (game.dealer === id) badges.push('<span class="badge zhuang">庄</span>');
     if (p.tingDeclared) badges.push(`<span class="badge baoting">${p.tianTing ? '天听' : '报听'}</span>`);
-    if (id === 0 && game.autoPlay) badges.push('<span class="badge auto">自动</span>');
+    if (p.botPlay) badges.push('<span class="badge auto">代打</span>');
     if (p.said) badges.push(`<span class="badge said">${p.said}</span>`);
     if (id === 0) {
       const ting = game.tingOf(0);
@@ -204,6 +215,7 @@
   function render() {
     if (!game || game.players.length !== 4) return;
     document.body.classList.toggle('is-remote', !!game.isRemote);
+    refreshControls();
     renderSeats();
     renderRivers();
     renderHand();
@@ -280,7 +292,7 @@
     if (game.phase === 'ended') return '本局结束';
     if (game.awaiting && game.awaiting.kind === 'claim') return '等你决定 · 碰 / 杠 / 胡';
     if (game.awaiting && game.awaiting.auto) {
-      return game.awaiting.ting ? '报听中' : '自动摸打中';
+      return game.awaiting.ting ? '报听中' : '人机代打中';
     }
     const p = game.players[game.turn];
     if (!p) return '';
@@ -304,7 +316,9 @@
     let html = '';
     if (a && a.kind === 'discard' && a.player === 0) {
       if (a.auto) {
-        html += `<div class="auto-hint">${a.ting ? '报听' : '自动摸打'} · ${a.autoTile != null ? '打出 ' + TN(a.autoTile) : '自摸'}</div>`;
+        const action = a.autoAction === 'gang' ? (a.autoGangType === 'angang' ? '暗杠 ' : '补杠 ') + TN(a.autoTile)
+          : a.autoTile != null ? '打出 ' + TN(a.autoTile) : '自摸';
+        html += `<div class="auto-hint">${a.ting ? '报听' : '人机代打'} · ${action}</div>`;
       } else {
         const s = a.self || {};
         if (s.hu) html += `<button class="action-btn hu" data-act="hu">胡 ${s.hu.name}</button>`;
@@ -313,9 +327,6 @@
         if (game.canTing(0)) html += '<button class="action-btn ting" data-act="ting">报听</button>';
         const chong = wildHint();
         if (chong) html += `<div class="auto-hint chong-hint">${chong}</div>`;
-        if (game.autoPlay && !game.autoDecision(0, a.self)) {
-          html += '<div class="auto-hint">自动摸打待命 · 还没听牌，先手动打一张</div>';
-        }
       }
     } else if (a && a.kind === 'claim') {
       const source = esc(game.players[a.from] ? game.players[a.from].name : '对方');
@@ -647,17 +658,45 @@
 
   function refreshRoundActions() {
     if (!game) return;
+    const topNext = $('#btn-new');
+    topNext.disabled = false;
+    topNext.title = '开始新的一局';
     if (game.isRemote) {
       const next = el.overlay.querySelector('[data-act="next"]');
       const room = window.GZOnline.room;
-      if (next && room) {
-        const finished = game.roundNo >= room.totalRounds;
-        next.disabled = finished || !room.host;
-        next.textContent = finished ? '本桌已结束' : room.host ? '开始下一局' : '等待房主开局';
+      if (room) {
+        const finished = game.phase === 'ended' && game.roundNo >= room.totalRounds;
+        const canNext = !finished && room.host && game.phase === 'ended';
+        topNext.disabled = !canNext;
+        topNext.title = finished ? '本桌已结束' : !room.host ? '等待房主开下一局' : game.phase !== 'ended' ? '本局结束后可开始下一局' : '开始下一局';
+        if (next) {
+          next.disabled = !canNext;
+          next.textContent = finished ? '本桌已结束' : room.host ? '开始下一局' : '等待房主开局';
+        }
+      } else {
+        topNext.disabled = true;
       }
       const back = el.overlay.querySelector('[data-act="lobby"]');
       if (back) back.textContent = '返回房间';
     }
+  }
+
+  function startNewRound() {
+    if (!game) return;
+    if (game.isRemote) {
+      const room = window.GZOnline.room;
+      if (!room || !room.host) { toast('等房主开下一局'); return; }
+      if (game.phase !== 'ended') { toast('本局结束后可开始下一局'); return; }
+      if (game.roundNo >= room.totalRounds) { toast('本桌已结束'); return; }
+      window.GZNet.send({ t: 'next' });
+      return;
+    }
+    const modeId = game.mode.id;
+    const table = { scores: game.scores.slice(), round: game.roundNo + 1,
+      dealer: game.nextDealer != null ? game.nextDealer : game.dealer };
+    hideResult();
+    createGame(modeId, table);
+    toast(`第 ${game.roundNo} 局开始`);
   }
 
   /** 新一局开始（联机：房主开了下一局）→ 收起上一局结算 */
@@ -688,8 +727,8 @@
     <h3>黄庄</h3>
     <p>牌墙摸完按查叫结算：未叫的人赔给每个叫牌者「其叫牌牌型的分值」。</p>
 
-    <h3>自动摸打</h3>
-    <p>右上角「自动摸打」开关（快捷键 <span class="hl">A</span>）：听牌后自动替你摸打，打出一张仍保持听牌的牌，能自摸就直接胡；碰、杠、吃炮胡仍然由你决定。</p>`;
+    <h3>人机代打</h3>
+    <p>右上角「人机代打」开关（快捷键 <span class="hl">A</span>）：电脑接管出牌、碰杠胡和抢杠，关闭后交回手动操作。报听后继续遵守锁牌规则。</p>`;
 
   const RULES_BODY = {
     classic: `
@@ -800,19 +839,7 @@
       else if (act === 'claim-hu' || act === 'claim-peng' || act === 'claim-gang') {
         game.humanRespond(act.replace('claim-', ''));
       } else if (act === 'claim-pass') game.humanRespond('pass');
-      else if (act === 'next') {
-        el.overlay.classList.add('hidden');
-        if (game.isRemote) {
-          const onlineRoom = window.GZOnline.room;
-          if (onlineRoom && onlineRoom.host) {
-            // 房主开下一局；其他玩家由服务端 room 广播自动进场
-            window.GZNet.send({ t: 'next' });
-          } else {
-            toast('等房主开下一局', 2200);
-            showOnlineRoom();
-          }
-        } else game.nextRound();
-      }
+      else if (act === 'next') startNewRound();
       else if (act === 'close') el.overlay.classList.add('hidden');
       else if (act === 'lobby') {
         if (game && game.isRemote) showOnlineRoom();
@@ -838,7 +865,7 @@
         else el.overlay.classList.add('hidden');
         return;
       }
-      // 键盘 A：开关自动摸打
+      // 键盘 A：开关人机代打
       if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.metaKey && !e.altKey) toggleAuto();
     });
 
@@ -883,12 +910,7 @@
       render();
       toast('四家累计分数已清零');
     });
-    $('#btn-new').addEventListener('click', () => {
-      if (!game || game.isRemote) return;
-      el.overlay.classList.add('hidden');
-      game.startRound();
-      toast('重新发牌');
-    });
+    $('#btn-new').addEventListener('click', startNewRound);
     $('#btn-fullscreen').addEventListener('click', () => {
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       else if (document.body.classList.contains('mobile-table')) window.GZViewport.enter(true);
@@ -966,7 +988,7 @@
 
   /** 房主点了「开始对局」：切到牌桌，用 RemoteGame 接住服务端快照 */
   function enterOnlineGame() {
-    if (game && !game.isRemote) game.phase = 'ended';
+    if (game && !game.isRemote) game.abort();
     if (!game || !game.isRemote) {
       game = new GZRemoteGame.RemoteGame();
       window.__game = game;
@@ -1051,12 +1073,13 @@
     toast(`进入「${game.mode.name}」· 第 ${game.roundNo} 局`, 2200);
   }
 
-  function createGame(modeId) {
+  function createGame(modeId, tableState) {
     if (game) {
-      game.phase = 'ended';   // 停掉上一桌的循环
+      if (game.abort) game.abort();
+      else game.phase = 'ended';
       saveScore();
     }
-    const saved = window.GZProfile.tableScore(modeId);
+    const saved = tableState || window.GZProfile.tableScore(modeId);
     game = new GZ.Game({
       mode: modeId,
       speed: SPEEDS[speedIdx].value,
@@ -1144,7 +1167,7 @@
     try {
       const saved = parseInt(localStorage.getItem('gz-speed'), 10);
       if (saved >= 0 && saved < SPEEDS.length) speedIdx = saved;
-      autoOn = localStorage.getItem('gz-auto') === '1';
+      autoOn = localStorage.getItem('gz-bot-play') === '1';
     } catch (e) { /* ignore */ }
 
     GZOnline.init({ onError: toast, onEnterGame: enterOnlineGame });

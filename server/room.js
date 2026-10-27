@@ -201,7 +201,7 @@ class Room {
     const roundNo = prev ? prev.roundNo + 1 : 1;
     const dealer = prev ? (prev.nextDealer != null ? prev.nextDealer : prev.dealer) : 0;
 
-    const seats = this.seats.map((s) => ({ type: s.bot || s.offline ? 'bot' : 'human', uid: s.uid, name: s.name }));
+    const seats = this.seats.map((s) => ({ type: s.bot || s.offline ? 'bot' : 'human', uid: s.uid, name: s.name, botPlay: !!s.botPlay }));
     if (prev) prev.abort();
     this.game = new OnlineGame({
       mode: this.config.mode,
@@ -254,6 +254,7 @@ class Room {
     const seat = this.seatOf(uid);
     if (seat < 0) return { ok: false, err: '你不在房间里' };
     const res = this.game.remoteAction(seat, action);
+    if (res.ok && action.type === 'autoplay') this.seats[seat].botPlay = action.enabled;
     if (res.ok) this.broadcastGame();
     return res;
   }
