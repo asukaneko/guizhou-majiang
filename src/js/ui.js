@@ -95,6 +95,8 @@
     el.brandSub = $('#brand-sub');
     el.lobbyBtn = $('#btn-lobby');
     el.online = $('#online');
+    el.resultBtn = $('#btn-result');
+    el.menu = $('#tb-menu');
   }
 
   /* ---------------- 出牌速度 ---------------- */
@@ -153,6 +155,7 @@
     el.autoBtn.textContent = `人机代打 ${enabled ? '开' : '关'}`;
     el.autoBtn.classList.toggle('on', enabled);
     el.autoBtn.setAttribute('aria-pressed', String(enabled));
+    el.resultBtn.classList.toggle('hidden', !(game?.phase === 'ended' && game.result));
     refreshRoundActions();
   }
 
@@ -957,6 +960,7 @@
         e.preventDefault(); e.target.click(); return;
       }
       if (e.key === 'Escape') {
+        if (el.menu.open) { el.menu.open = false; return; }
         if (reviewGame === game && game?.result) { showResult(game.result); return; }
         if (game && game.awaiting && game.awaiting.kind === 'claim') game.humanRespond('pass');
         else el.overlay.classList.add('hidden');
@@ -1006,6 +1010,15 @@
     });
 
     $('#btn-rules').addEventListener('click', () => showRules(game ? game.mode.id : 'classic'));
+    el.resultBtn.addEventListener('click', () => {
+      if (game?.phase === 'ended' && game.result) showResult(game.result);
+    });
+    el.menu.addEventListener('click', (e) => {
+      if (e.target.closest('.tb-menu-panel .tb-btn')) setTimeout(() => { el.menu.open = false; }, 0);
+    });
+    document.addEventListener('pointerdown', (e) => {
+      if (el.menu.open && !el.menu.contains(e.target)) el.menu.open = false;
+    });
     el.lobbyBtn.addEventListener('click', showLobby);
     $('#btn-reset-scores').addEventListener('click', () => {
       if (!game || game.isRemote) return;

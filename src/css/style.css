@@ -69,6 +69,27 @@ html, body {
 .brand-text span { font-size: 10px; letter-spacing: 1px; color: #7f9c8d; }
 
 .tb-actions { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
+.tb-menu { position: relative; }
+.tb-menu-trigger {
+  list-style: none; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 13px;
+  border: 1px solid rgba(231, 200, 120, 0.34); border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.035));
+  color: #f0e2bf; font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1; cursor: pointer; -webkit-app-region: no-drag;
+}
+.tb-menu-trigger::-webkit-details-marker { display: none; }
+.tb-menu-trigger:hover, .tb-menu[open] .tb-menu-trigger { border-color: rgba(231,200,120,.7); background: rgba(231,200,120,.13); }
+.menu-glyph { color: #d8bb78; font-size: 16px; line-height: 1; }
+.tb-menu-panel {
+  position: absolute; z-index: 100; top: calc(100% + 9px); right: 0; width: min(320px, calc(100vw - 20px));
+  display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding: 10px;
+  border: 1px solid rgba(231,200,120,.28); border-radius: 14px;
+  background: linear-gradient(155deg, rgba(24,43,35,.99), rgba(7,15,12,.99));
+  box-shadow: 0 16px 42px rgba(0,0,0,.52), inset 0 1px 0 rgba(255,255,255,.06);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+}
+.tb-menu-panel .tb-btn { min-width: 0; min-height: 38px; height: auto; padding: 6px 9px; text-align: left; white-space: normal; line-height: 1.25; }
+.tb-menu-panel .tb-btn:focus-visible, .tb-menu-trigger:focus-visible { outline: 2px solid #e7c878; outline-offset: 2px; }
+.tb-menu-panel .hidden { display: none !important; }
 
 .tb-btn {
   height: 28px;

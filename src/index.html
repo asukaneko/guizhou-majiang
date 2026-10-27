@@ -18,16 +18,22 @@
         </div>
       </div>
       <div class="tb-actions">
-        <button id="btn-sound" class="tb-btn" title="开关音效">音效 开</button>
-        <button id="btn-speed" class="tb-btn game-only" title="电脑出牌速度">速度 中</button>
-        <button id="btn-auto" class="tb-btn game-only" title="由电脑接管出牌、碰杠胡，可随时关闭" aria-pressed="false">人机代打 关</button>
-        <button id="btn-difficulty" class="tb-btn game-only" title="切换本地人机难度">难度 普通</button>
-        <button id="btn-rules" class="tb-btn" title="查看规则">规则</button>
-        <button id="btn-chat" class="tb-btn hidden" title="房间聊天" aria-controls="room-chat" aria-expanded="false">聊天<span id="chat-unread" class="chat-unread hidden" aria-hidden="true"></span></button>
-        <button id="btn-reset-scores" class="tb-btn game-only" title="清空当前玩法牌桌上的四家累计分数">清空分数</button>
-        <button id="btn-new" class="tb-btn game-only" title="重新开一局">新的一局</button>
-        <button id="btn-lobby" class="tb-btn lobby-btn" title="回到游戏大厅">大厅</button>
-        <button id="btn-fullscreen" class="tb-btn" title="全屏展示牌桌">全屏</button>
+        <details id="tb-menu" class="tb-menu">
+          <summary class="tb-menu-trigger" aria-label="打开游戏菜单"><span class="menu-glyph" aria-hidden="true">☰</span><span>菜单</span></summary>
+          <div id="tb-menu-panel" class="tb-menu-panel" aria-label="游戏操作">
+            <button id="btn-sound" class="tb-btn" title="开关音效">音效 开</button>
+            <button id="btn-speed" class="tb-btn game-only" title="电脑出牌速度">速度 中</button>
+            <button id="btn-auto" class="tb-btn game-only" title="由电脑接管出牌、碰杠胡，可随时关闭" aria-pressed="false">人机代打 关</button>
+            <button id="btn-difficulty" class="tb-btn game-only" title="切换本地人机难度">难度 普通</button>
+            <button id="btn-rules" class="tb-btn" title="查看规则">规则</button>
+            <button id="btn-chat" class="tb-btn hidden" title="房间聊天" aria-controls="room-chat" aria-expanded="false">聊天<span id="chat-unread" class="chat-unread hidden" aria-hidden="true"></span></button>
+            <button id="btn-reset-scores" class="tb-btn game-only" title="清空当前玩法牌桌上的四家累计分数">清空分数</button>
+            <button id="btn-new" class="tb-btn game-only" title="重新开一局">新的一局</button>
+            <button id="btn-result" class="tb-btn game-only hidden" title="重新打开本局结算">本局结算</button>
+            <button id="btn-lobby" class="tb-btn lobby-btn" title="回到游戏大厅">大厅</button>
+            <button id="btn-fullscreen" class="tb-btn" title="全屏展示牌桌">全屏</button>
+          </div>
+        </details>
         <div class="win-btns">
           <button id="btn-min" class="win-btn" title="最小化">–</button>
           <button id="btn-max" class="win-btn" title="最大化">□</button>
