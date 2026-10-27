@@ -121,6 +121,7 @@ function browser({ coarse = false } = {}) {
   }
   const doc = { body: new Element(), documentElement: { style: { setProperty() {} } },
     querySelector(selector) { if (!elements.has(selector)) elements.set(selector, new Element()); return elements.get(selector); },
+    querySelectorAll: (selector) => selector === '[data-room-chat-toggle]' ? [doc.querySelector(selector)] : [],
     createElement: () => new Element(), addEventListener: (name, fn) => { doc[name] = fn; } };
   const ctx = vm.createContext({ document: doc, innerWidth: coarse ? 390 : 1440, innerHeight: coarse ? 844 : 900,
     GZNet: { status: () => status, send(message) { if (status !== 'open') return false; sent.push(message); return true; }, on(ev, fn) { (listeners[ev] ||= []).push(fn); } },
@@ -141,6 +142,8 @@ test('聊天网页：未读、纯文字渲染、重复消息去重、房间和�
   const b = browser(); const get = (id) => b.elements.get(id);
   assert.ok(get('#btn-chat').classList.contains('hidden'));
   b.joined(); b.receive({ t: 'chat-history', roomId: '1234', messages: [] });
+  assert.ok(b.doc.body.classList.contains('chat-docked'), 'PC 房间直接显示聊天区');
+  b.click();
   b.receive({ t: 'chat', roomId: '5678', message: b.message('foreign') });
   b.receive({ t: 'chat', roomId: '1234', message: b.message('1') });
   b.receive({ t: 'chat', roomId: '1234', message: b.message('1') });
@@ -148,10 +151,10 @@ test('聊天网页：未读、纯文字渲染、重复消息去重、房间和�
   const row = get('#chat-messages').nodes[0];
   assert.equal(row.nodes[0].nodes[0].textContent, '<img src=x>');
   assert.equal(row.nodes[1].textContent, '<script>危险文字</script>🀄');
-  b.click(); assert.ok(b.doc.body.classList.contains('chat-open')); assert.ok(get('#chat-input').focused);
+  b.click(); assert.ok(b.doc.body.classList.contains('chat-docked')); assert.ok(get('#chat-input').focused);
   assert.ok(get('#chat-unread').classList.contains('hidden'));
   b.ctx.GZChat.setView('game', true); assert.equal(get('#chat-messages').nodes[0], row);
-  b.ctx.GZChat.setView('online'); assert.ok(b.doc.body.classList.contains('chat-open'));
+  b.ctx.GZChat.setView('online'); assert.ok(b.doc.body.classList.contains('chat-docked'));
   get('#chat-input').value = '草稿'; b.ctx.GZChat.setView('lobby');
   assert.equal(get('#chat-input').value, '草稿'); assert.ok(get('#room-chat').classList.contains('hidden'));
   b.ctx.GZChat.setView('online'); b.joined('5678');
@@ -219,11 +222,12 @@ test('聊天网页：长记录限量，浏览旧消息时保留位置并可跳�
   assert.ok(b.doc.body.classList.contains('chat-short'));
 });
 
-test('聊天网页：PC 对局右侧常驻且预留牌桌空间，窄屏使用聊天按钮，手机对局按按钮覆盖显示', () => {
+test('聊天网页：PC 对局右侧聊天可折叠并释放空间，窄屏和手机按按钮覆盖显示', () => {
   const b = browser(); b.joined(); b.ctx.GZChat.setView('game', true);
   assert.ok(b.doc.body.classList.contains('chat-docked'));
   assert.equal(b.elements.get('#room-chat').classList.contains('hidden'), false);
-  assert.ok(b.elements.get('#btn-chat').classList.contains('hidden'));
+  assert.equal(b.elements.get('#btn-chat').classList.contains('hidden'), false);
+  assert.equal(b.elements.get('#chat-close').textContent, '折叠');
   assert.equal(b.elements.get('#chat-input').focused, false, '常驻区域不抢走牌桌焦点');
   b.ctx.innerWidth = 800; b.resize();
   assert.equal(b.doc.body.classList.contains('chat-docked'), false);
@@ -235,4 +239,27 @@ test('聊天网页：PC 对局右侧常驻且预留牌桌空间，窄屏使用�
   assert.equal(mobile.doc.body.classList.contains('chat-docked'), false);
   assert.ok(mobile.elements.get('#room-chat').classList.contains('hidden'));
   mobile.click(); assert.equal(mobile.elements.get('#room-chat').classList.contains('hidden'), false);
+});
+
+test('聊天网页：房间和对局分别记住折叠状态，折叠时保留草稿与未读，房间入口同步并支持键盘关闭', () => {
+  const b = browser(); b.joined();
+  const entry = b.elements.get('[data-room-chat-toggle]');
+  assert.equal(entry.textContent, '折叠房间聊天');
+  b.ctx.GZChat.setView('game', true);
+  b.elements.get('#chat-input').value = '跨界面草稿';
+  b.elements.get('#chat-close').events.click();
+  assert.equal(b.doc.body.classList.contains('chat-docked'), false);
+  assert.ok(b.elements.get('#room-chat').classList.contains('hidden'));
+  b.receive({ t:'chat', roomId:'1234', message:b.message('folded') });
+  assert.equal(b.elements.get('#chat-unread').textContent, '1');
+  b.resize(); assert.equal(b.doc.body.classList.contains('chat-docked'), false, '窗口变化保留折叠选择');
+  b.ctx.GZChat.setView('online'); assert.ok(b.doc.body.classList.contains('chat-docked'));
+  assert.equal(b.elements.get('#chat-input').value, '跨界面草稿');
+  b.ctx.GZChat.setView('game', true); assert.ok(b.elements.get('#room-chat').classList.contains('hidden'));
+  b.ctx.GZChat.toggle(); assert.ok(b.doc.body.classList.contains('chat-docked'));
+  assert.equal(entry.attributes['aria-expanded'], 'true');
+  assert.ok(b.elements.get('#chat-unread').classList.contains('hidden'));
+  let stopped = false;
+  b.doc.keydown({ key:'Escape', target:{ closest:() => b.elements.get('#room-chat') }, preventDefault() {}, stopImmediatePropagation() { stopped = true; } });
+  assert.ok(stopped); assert.ok(b.elements.get('#room-chat').classList.contains('hidden'));
 });

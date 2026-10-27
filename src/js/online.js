@@ -102,37 +102,49 @@
     const canEdit = room.host && !room.running && Net.status() === 'open';
     const mine = room.seats.findIndex((s) => s.you);
     const seats = room.seats.slice(mine).concat(room.seats.slice(0, mine));
-    const rows = seats.map((s, i) => {
-      const occupied = !!s.name;
-      const readiness = room.roundNo > 0 && !room.running && occupied
-        ? `<span class="ol-seat-tag ${s.ready ? 'ready' : ''}">${s.bot ? '自动就绪' : s.host ? '房主开局' : s.ready ? '已准备' : '未准备'}</span>` : '';
-      return `<div class="ol-seat${occupied ? '' : ' empty'}"><div class="ol-seat-no">${['你', '下家', '对家', '上家'][i]}</div>
-        <div class="ol-seat-name">${occupied ? esc(s.name) : '等待加入'}</div><div class="ol-seat-tags">
-        <span class="ol-seat-tag">${!occupied ? '空位' : s.offline ? '重连中 · 电脑代打' : s.bot ? '机器人' : '已入座'}</span>
-        ${s.host ? '<span class="ol-seat-tag host">房主</span>' : ''}
-        ${readiness}
-        ${s.bot && canEdit ? `<button class="ol-mini" data-act="removebot" data-uid="${esc(s.uid)}">移除</button>` : ''}</div></div>`;
-    }).join('');
+    const occupiedCount = room.seats.filter((s) => s.uid).length;
     const finished = room.finished ?? (room.roundNo >= room.totalRounds && !room.running);
     const ready = readyInfo();
+    const rows = seats.map((s, i) => {
+      const occupied = !!s.uid;
+      const state = !occupied ? '空位' : s.offline ? '等待重连' : room.running ? '对局中' : s.bot ? '自动就绪' : s.host ? '房主开局' : room.roundNo ? (s.ready ? '已准备' : '未准备') : '已入座';
+      const role = !occupied ? '邀请朋友或添加人机' : s.offline ? '座位保留中' : s.host ? '房主' : s.bot ? `${AI.DIFFICULTIES[AI.difficultyOf(room.config.aiDifficulty)].label}人机` : s.you ? '本机玩家' : '联机玩家';
+      const score = Number.isFinite(room.standings?.[s.seat]) ? room.standings[s.seat] : 0;
+      const avatar = !occupied ? '＋' : s.bot ? '机' : Array.from(s.name || '玩家')[0];
+      return `<article class="ol-seat room-seat${occupied ? '' : ' empty'}${s.you ? ' is-you' : ''}${s.offline ? ' is-offline' : ''}">
+        <div class="room-seat-head"><span>${['你', '下家', '对家', '上家'][i]}</span><span class="room-player-state${occupied && !s.offline && (s.ready || s.bot || s.host) ? ' ready' : ''}">${state}</span></div>
+        <div class="room-player"><div class="room-avatar${s.bot ? ' bot' : ''}" aria-hidden="true">${esc(avatar)}</div>
+          <div class="room-player-info"><div class="ol-seat-name" title="${esc(s.name || '等待加入')}">${occupied ? esc(s.name) : '等待加入'}</div><span class="room-player-role">${role}</span></div></div>
+        <div class="room-seat-foot">${occupied ? `<span>累计分 <b class="${score > 0 ? 'positive' : score < 0 ? 'negative' : ''}">${score > 0 ? '+' : ''}${score}</b></span>` : '<span>等待入座</span>'}
+        ${s.bot && canEdit ? `<button class="ol-mini" data-act="removebot" data-uid="${esc(s.uid)}">移除人机</button>` : ''}</div></article>`;
+    }).join('');
     const canPrepare = !room.running && room.roundNo > 0 && !room.host;
     const label = room.running ? '返回牌桌' : canPrepare ? (ready.mine ? '已准备（取消）' : finished ? '准备下一桌' : '准备') : !room.host ? '等待房主开局' : finished ? '开启新的一桌' : room.roundNo ? (ready.all ? '开始下一局' : '等待玩家准备') : '开始对局';
     const canStart = room.running || (canPrepare ? Net.status() === 'open' : canEdit && room.full && !room.seats.some((s) => s.offline) && (!room.roundNo || ready.all));
-    return `<div class="ol-card wide"><div class="ol-head"><h2>房间 ${room.id}</h2>${statusHtml()}<span class="ol-tip">第 ${room.roundNo} / ${room.totalRounds} 局</span></div>
-      <p class="ol-sub">分享房号 <b class="ol-code">${room.id}</b> 给朋友，等待入座后开始。</p><div class="ol-seats">${rows}</div>
+    const offline = room.seats.filter((s) => s.offline).map((s) => s.name);
+    const stage = room.running ? '对局进行中' : !room.full ? '等待玩家入座' : offline.length ? '等待玩家重连' : !room.roundNo ? '已到齐，可以开局' : !ready.all ? '等待玩家准备' : finished ? '准备开启新桌' : '准备开始下一局';
+    const detail = room.running ? '可返回牌桌继续打牌，也可以在这里与同桌聊天。' : !room.full ? `还差 ${4 - occupiedCount} 位，可邀请朋友或添加人机。`
+      : offline.length ? `等待 ${offline.join('、')} 恢复连接。` : !room.roundNo ? (room.host ? '确认牌桌设置后，点击开始对局。' : '房主确认设置后即可开局。')
+        : !ready.all ? `等待 ${ready.waiting.join('、') || '玩家'} 点击准备，机器人自动就绪。` : '全员已准备，等待房主开局。';
+    return `<div class="ol-card wide ol-room"><header class="room-header"><div class="room-identity"><h2>房间 <span class="room-code">${esc(room.id)}</span></h2>
+      <div class="room-meta">${statusHtml()}<span>${esc(R.MODES[room.config.mode]?.name || room.config.mode)}</span><span>${occupiedCount} / 4 人</span><span>${room.roundNo ? `第 ${room.roundNo} / ${room.totalRounds} 局` : `${room.config.totalRounds} 局一桌`}</span></div></div>
+      <button class="btn-ghost room-chat-launch" data-act="chat" data-room-chat-toggle aria-controls="room-chat" aria-expanded="false">房间聊天</button></header>
+      <div class="room-progress" role="status"><strong>${stage}</strong><p>${esc(detail)}</p></div>
+      <section class="room-players"><div class="room-section-head"><h3>同桌玩家</h3>${canEdit ? `<button class="btn-ghost" data-act="addbot" ${room.full ? 'disabled' : ''}>添加机器人</button>` : ''}</div>
+      <div class="ol-seats room-seat-grid">${rows}</div></section>
+      <section class="room-settings"><div class="room-section-head"><h3>牌桌设置</h3><span>${room.host ? room.running ? '对局中可调整人机速度' : '由房主配置' : '由房主设置'}</span></div>
       <div class="ol-config"><label class="ol-field"><span>玩法</span><select id="ol-mode2" ${canEdit ? '' : 'disabled'}>${modeOptions(room.config.mode)}</select></label>
       <label class="ol-field"><span>局数</span><select id="ol-rounds2" ${canEdit ? '' : 'disabled'}>${roundOptions(room.config.totalRounds)}</select></label>
       <label class="ol-field"><span>人机难度</span><select id="ol-difficulty2" ${canEdit ? '' : 'disabled'}>${aiOptions(room.config.aiDifficulty || 'normal')}</select></label>
-      <label class="ol-field"><span>人机速度</span><select id="ol-botspeed2" ${room.host && Net.status() === 'open' ? '' : 'disabled'}>${speedOptions(room.config.botSpeed || 'normal')}</select></label>
-      ${canEdit ? `<button class="btn-ghost" data-act="addbot" ${room.full ? 'disabled' : ''}>添加机器人</button>` : ''}</div>
-      <div class="ol-foot"><button class="btn-ghost" data-act="back">游戏大厅</button><button class="btn-ghost" data-act="leave">退出房间</button>
-      <button class="btn-primary" data-act="${canPrepare ? 'ready' : 'start'}" ${canStart ? '' : 'disabled'}>${label}</button></div>
-      ${room.roundNo && !room.running ? `<p class="ol-note" role="status">${ready.all ? '全员已准备，等待房主开局。' : `等待 ${esc(ready.waiting.join('、') || '玩家')} 准备；机器人自动就绪。`}</p>` : ''}
-      <p class="ol-note">${finished ? `本桌已结束，可调整玩法、局数和座位。新桌从第 1 局开始，${room.resetScoresOnNewTable ? '房主已主动退房，新桌重新计分' : '累计分数继续保留'}，房号保持不变。` : '掉线后保留座位 60 秒，电脑临时代打；恢复连接后回到原座位。'}</p></div>`;
+      <label class="ol-field"><span>人机速度</span><select id="ol-botspeed2" ${room.host && Net.status() === 'open' ? '' : 'disabled'}>${speedOptions(room.config.botSpeed || 'normal')}</select></label></div></section>
+      <footer class="room-footer"><p class="room-footnote">${finished ? `新桌从第 1 局开始，${room.resetScoresOnNewTable ? '房主已主动退房，新桌重新计分' : '累计分数继续保留'}，房号保持不变。` : '临时掉线保留座位 60 秒，恢复连接后回到原座位。'}</p>
+      <div class="ol-foot"><button class="btn-ghost" data-act="back">游戏大厅</button><button class="btn-ghost room-leave" data-act="leave">退出房间</button>
+      <button class="btn-primary" data-act="${canPrepare ? 'ready' : 'start'}" ${canStart ? '' : 'disabled'}>${label}</button></div></footer></div>`;
   }
   function render() {
     if (!node) return;
     node.innerHTML = `<div class="ol-wrap">${room ? roomHtml() : connectHtml()}</div>`;
+    root.GZChat?.sync();
     root.GZUI?.fit();
   }
   function bind() {
@@ -155,6 +167,7 @@
         case 'addbot': Net.send({ t: 'addbot' }); break;
         case 'removebot': Net.send({ t: 'removebot', uid: btn.dataset.uid }); break;
         case 'ready': toggleReady(); break;
+        case 'chat': root.GZChat?.toggle(); break;
         case 'start':
           root.GZViewport.enter();
           if (room.running) enterTable();

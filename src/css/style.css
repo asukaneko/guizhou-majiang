@@ -1608,6 +1608,70 @@ body.is-remote #btn-difficulty, body.is-remote #btn-reset-scores { display: none
 .practice-settings select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .ol-config .ol-field { flex: 1 1 150px; }
 
+/* 房间：房号、座位、准备进度与设置分区展示。 */
+.ol-card.ol-room { padding: 24px; border: 1px solid #3d5947; border-radius: 14px; background: #102219; container-type: inline-size; container-name: room; }
+.room-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-bottom: 20px; }
+.room-identity { min-width: 0; }
+.room-header h2 { margin: 0 0 10px; font-size: 20px; font-weight: 500; color: #d4e4d9; }
+.room-code { margin-left: 8px; color: var(--gold); font-size: 30px; font-weight: 700; letter-spacing: 3px; font-variant-numeric: tabular-nums; user-select: all; }
+.room-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; color: #afc4b6; font-size: 12px; }
+.room-meta .ol-badge { border-radius: 5px; padding: 3px 8px; letter-spacing: 0; }
+.room-chat-launch { flex-shrink: 0; min-height: 44px; }
+.room-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; padding: 16px 0; border-top: 1px solid #304939; border-bottom: 1px solid #304939; }
+.room-progress strong { color: #e5eddf; font-size: 16px; }
+.room-progress p { flex: 1 1 240px; margin: 0; color: #b1c6b8; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.room-players { padding-top: 20px; }
+.room-section-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.room-section-head h3 { margin: 0; font-size: 15px; color: var(--paper); font-weight: 600; }
+.room-section-head > span { font-size: 12px; color: #afc4b6; }
+.room-section-head .btn-ghost { min-height: 38px; padding: 6px 12px; font-size: 12px; }
+.room-seat-grid { margin: 0; gap: 12px; }
+.room-seat { display: flex; flex-direction: column; padding: 12px; border-radius: 9px; border-color: #3a5543; background: #15291e; text-align: left; }
+.room-seat.is-you { border-color: #bba16a; background: #1b3022; }
+.room-seat.empty { background: transparent; border-color: #455c4c; }
+.room-seat.is-offline { border-style: dashed; }
+.room-seat-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 12px; color: #a8bfaf; }
+.room-player-state { color: #c3cdbb; white-space: nowrap; }
+.room-player-state.ready { color: #b2e4be; }
+.room-player { flex: 1; display: flex; align-items: center; gap: 10px; padding: 15px 0 12px; }
+.room-avatar { flex: 0 0 38px; width: 38px; height: 42px; display: grid; place-items: center; border: 1px solid #9aa77c; border-radius: 7px; background: #e0d3ad; color: #293b26; font-size: 21px; font-weight: 600; }
+.room-avatar.bot { background: #294b37; color: #c3e7c9; border-color: #557a5f; }
+.room-seat.empty .room-avatar { border-style: dashed; border-color: #526958; background: transparent; color: #a9bdad; font-size: 24px; }
+.room-player-info { min-width: 0; }
+.room-player .ol-seat-name { margin: 0 0 5px; color: #f1eee0; font-size: 15px; }
+.room-player-role { color: #a9c0af; font-size: 12px; }
+.room-seat-foot { min-height: 36px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 5px; border-top: 1px solid #2d4434; padding-top: 7px; font-size: 12px; color: #b0c5b5; }
+.room-seat-foot b { margin-left: 5px; color: #d9e3d5; font-variant-numeric: tabular-nums; }
+.room-seat-foot b.positive { color: #b2e4be; }
+.room-seat-foot b.negative { color: #efb29f; }
+.room-seat-foot .ol-mini { min-height: 36px; padding: 5px 0 5px 8px; font-size: 12px; }
+.room-settings { margin-top: 22px; padding-top: 18px; border-top: 1px solid #304939; }
+.room-settings .ol-config { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding: 0; background: none; border-radius: 0; }
+.room-settings .ol-field { gap: 7px; color: #c1d2c5; }
+.room-settings select { border-color: #56715c; background: #0c1b12; border-radius: 6px; }
+.room-settings select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.room-settings select:disabled { opacity: .7; cursor: default; }
+.room-footer { margin-top: 22px; padding-top: 16px; border-top: 1px solid #304939; }
+.room-footnote { margin: 0; color: #a9bfae; font-size: 12px; line-height: 1.6; }
+.room-footer .ol-foot { margin-top: 14px; }
+.room-footer .btn-primary { min-width: 150px; }
+.room-footer .room-leave { color: #edb7a7; }
+@container room (max-width: 760px) {
+  .room-seat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .room-settings .ol-config { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container room (max-width: 420px) {
+  .room-header { align-items: flex-start; flex-direction: column; gap: 14px; }
+  .room-chat-launch { width: 100%; }
+  .room-progress { align-items: flex-start; flex-direction: column; }
+  .room-progress p { flex-basis: auto; }
+  .room-seat-grid { gap: 9px; }
+  .room-seat { padding: 10px; }
+  .room-player { gap: 8px; }
+  .room-avatar { flex-basis: 30px; width: 30px; height: 36px; font-size: 18px; }
+  .room-player .ol-seat-name { font-size: 14px; }
+}
+
 /* 聊天面板独立于缩放牌桌，切换房间等待页和牌桌时保留输入与记录。 */
 #btn-chat { display: inline-flex; align-items: center; gap: 5px; }
 body.chat-open #app { position: fixed; top: var(--viewport-top, 0px); left: 0; }
@@ -1621,10 +1685,11 @@ body.chat-open #app { position: fixed; top: var(--viewport-top, 0px); left: 0; }
 }
 body.chat-docked #room-chat { top: 56px; right: 8px; bottom: 8px; width: 300px; max-height: none; box-shadow: none; }
 body.chat-docked #stage-wrap { margin-right: 316px; }
-body.chat-docked #chat-close { display: none; }
+body.chat-docked.in-online #online { margin-right: 316px; }
 @media (min-width: 1440px) {
   body.chat-docked #room-chat { width: 340px; }
   body.chat-docked #stage-wrap { margin-right: 356px; }
+  body.chat-docked.in-online #online { margin-right: 356px; }
 }
 .chat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid #31483b; flex-shrink: 0; }
 .chat-head h2 { margin: 0 0 3px; font-size: 16px; color: var(--paper); }

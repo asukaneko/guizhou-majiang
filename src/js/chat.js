@@ -6,8 +6,10 @@
   const $ = (s) => document.querySelector(s);
   let el, roomId = null, myUid = null, messages = [], unread = 0, opened = false;
   let view = 'lobby', remote = false, pending = null, sequence = 0, hasHistory = false, recovering = false, composing = false;
+  const collapsed = { online: false, game: false };
   const available = () => !!roomId && (view === 'online' || (view === 'game' && remote));
-  const docked = () => available() && view === 'game' && !root.matchMedia('(pointer: coarse)').matches && root.innerWidth >= 1000;
+  const canDock = () => available() && !root.matchMedia('(pointer: coarse)').matches && root.innerWidth >= 1000;
+  const docked = () => canDock() && !collapsed[view];
   const expanded = () => available() && (opened || docked());
   const nearBottom = () => el.list.scrollHeight - el.list.scrollTop - el.list.clientHeight < 56;
   const bottom = () => { el.list.scrollTop = el.list.scrollHeight; };
@@ -17,16 +19,23 @@
     if (!active) opened = false;
     const dock = docked(), changedDock = document.body.classList.contains('chat-docked') !== dock;
     if (dock && changedDock) unread = 0;
-    el.toggle.classList.toggle('hidden', !active || dock);
+    el.toggle.classList.toggle('hidden', !active);
     el.panel.classList.toggle('hidden', !expanded());
     document.body.classList.toggle('chat-open', expanded() && !dock);
     document.body.classList.toggle('chat-docked', dock);
     el.toggle.setAttribute('aria-expanded', String(expanded()));
+    el.toggle.title = expanded() ? '折叠房间聊天' : '展开房间聊天';
+    el.close.textContent = canDock() ? '折叠' : '收起';
+    el.close.setAttribute('aria-label', canDock() ? '折叠聊天区' : '收起聊天');
     el.badge.textContent = unread > 99 ? '99+' : String(unread);
     el.badge.classList.toggle('hidden', !unread);
     el.latest.textContent = `查看 ${unread} 条新消息`;
     el.latest.classList.toggle('hidden', !expanded() || !unread);
     el.toggle.setAttribute('aria-label', unread ? `房间聊天，${unread} 条未读消息` : '房间聊天');
+    for (const button of document.querySelectorAll('[data-room-chat-toggle]')) {
+      button.textContent = unread ? `房间聊天（${unread > 99 ? '99+' : unread}）` : expanded() ? '折叠房间聊天' : '打开房间聊天';
+      button.setAttribute('aria-expanded', String(expanded()));
+    }
     el.room.textContent = roomId ? `房间 ${roomId} · 最近 100 条` : '';
     const connected = Net.status() === 'open';
     el.input.disabled = !connected || !roomId;
@@ -45,6 +54,7 @@
     document.body.classList.toggle('chat-portrait', root.matchMedia('(pointer: coarse)').matches && portrait);
   }
   function close(focus = true) {
+    if (canDock()) collapsed[view] = true;
     opened = false;
     composing = false;
     el.input.blur();
@@ -54,12 +64,14 @@
   }
   function open() {
     if (!available()) return;
-    opened = true; unread = 0;
+    if (canDock()) collapsed[view] = false;
+    opened = !canDock(); unread = 0;
     orient();
     refresh(); resize(); bottom();
     // 手机打开面板先展示消息和快捷短语，点输入框再唤起软键盘。
     if (!root.matchMedia('(pointer: coarse)').matches) el.input.focus({ preventScroll: true });
   }
+  function toggle() { if (expanded()) close(); else open(); }
   function reset() {
     roomId = null; myUid = null; messages = []; unread = 0; pending = null; hasHistory = false; recovering = false;
     el.input.value = ''; el.list.replaceChildren(); close(false);
@@ -142,10 +154,10 @@
     }
   }
   function init() {
-    el = { toggle: $('#btn-chat'), badge: $('#chat-unread'), panel: $('#room-chat'), room: $('#chat-room'),
+    el = { toggle: $('#btn-chat'), badge: $('#chat-unread'), close: $('#chat-close'), panel: $('#room-chat'), room: $('#chat-room'),
       list: $('#chat-messages'), input: $('#chat-input'), send: $('#chat-send'), status: $('#chat-status'), quick: $('#chat-quick'), latest: $('#chat-latest') };
-    el.toggle.addEventListener('click', () => opened ? close() : open());
-    $('#chat-close').addEventListener('click', () => close());
+    el.toggle.addEventListener('click', toggle);
+    el.close.addEventListener('click', () => close());
     el.latest.addEventListener('click', () => { unread = 0; bottom(); refresh(); });
     $('#chat-form').addEventListener('submit', (e) => { e.preventDefault(); if (!composing) send(); });
     el.input.addEventListener('compositionstart', () => { composing = true; });
@@ -161,7 +173,7 @@
     });
     el.list.addEventListener('scroll', () => { if (expanded() && nearBottom() && unread) { unread = 0; refresh(); } });
     document.addEventListener('keydown', (e) => {
-      if (opened && !docked() && e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); }
+      if (expanded() && (!docked() || e.target?.closest?.('#room-chat')) && e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); }
     }, true);
     root.addEventListener('resize', () => { if (opened) orient(); refresh(); resize(); });
     Net.on('msg', handle);
@@ -171,7 +183,7 @@
     });
     refresh();
   }
-  root.GZChat = { init, setView(name, isRemote) {
+  root.GZChat = { init, toggle, sync() { if (el) refresh(); }, setView(name, isRemote) {
     view = name; remote = isRemote;
     if (!available()) close(false); else refresh();
   } };

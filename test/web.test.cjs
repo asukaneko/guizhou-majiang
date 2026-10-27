@@ -204,6 +204,17 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
   receive({ t: 'joined', room: { ...room, running: false, roundNo: 0 } });
   assert.ok(doc.body.classList.contains('in-online'), '新建或加入等待房间能正常显示');
   assert.equal(ctx.GZOnline.started, false);
+  assert.match(elements.get('#online').innerHTML, /data-act="chat" data-room-chat-toggle/);
+  assert.match(elements.get('#online').innerHTML, /同桌玩家/);
+  assert.match(elements.get('#online').innerHTML, /牌桌设置/);
+  elements.get('#online').events.get('click')({ target:{ closest:() => ({ dataset:{ act:'chat' } }) } });
+  assert.ok(doc.body.classList.contains('chat-open'), '手机房间页的聊天入口可直接展开');
+  const chatInput = elements.get('#chat-input'); chatInput.value = '房间里聊天';
+  elements.get('#chat-form').events.get('submit')({ preventDefault() {} });
+  const chat = ws.sent.at(-1); assert.equal(chat.t, 'chat'); assert.equal(chat.text, '房间里聊天');
+  receive({ t:'chat', roomId:room.id, message:{ id:'room-message', uid:'seat0', name:'玩家', text:chat.text, at:1, clientId:chat.clientId } });
+  assert.equal(chatInput.value, '');
+  elements.get('#chat-close').events.get('click')();
   receive({ t: 'room', room });
   assert.ok(doc.body.classList.contains('in-game'));
   assert.ok(doc.body.classList.contains('rotate-game'));
