@@ -62,6 +62,13 @@
     return { all: room?.allReady === true, mine: mine?.ready === true,
       waiting: room?.seats.filter((s) => s.uid && !s.bot && !s.host && (!s.ready || s.offline)).map((s) => s.name) || [] };
   }
+  function rename(name) {
+    const value = String(name || '').trim().slice(0, 10);
+    if (!room || !value) return false;
+    if (!Net.send({ t: 'hello', name: value })) return false;
+    P.rename(value);
+    return true;
+  }
   function toggleReady() {
     if (!room || room.host || room.running || !room.roundNo) return false;
     return Net.send({ t: 'ready', ready: !readyInfo().mine, roundId: room.roundId, readyId: room.readyId });
@@ -114,7 +121,7 @@
       return `<article class="ol-seat room-seat${occupied ? '' : ' empty'}${s.you ? ' is-you' : ''}${s.offline ? ' is-offline' : ''}">
         <div class="room-seat-head"><span>${['你', '下家', '对家', '上家'][i]}</span><span class="room-player-state${occupied && !s.offline && (s.ready || s.bot || s.host) ? ' ready' : ''}">${state}</span></div>
         <div class="room-player"><div class="room-avatar${s.bot ? ' bot' : ''}" aria-hidden="true">${esc(avatar)}</div>
-          <div class="room-player-info"><div class="ol-seat-name" title="${esc(s.name || '等待加入')}">${occupied ? esc(s.name) : '等待加入'}</div><span class="room-player-role">${role}</span></div></div>
+          <div class="room-player-info"><div class="room-name-line"><div class="ol-seat-name" title="${esc(s.name || '等待加入')}">${occupied ? esc(s.name) : '等待加入'}</div>${s.you && occupied && !s.bot ? '<button class="room-rename" type="button" data-act="rename">改名</button>' : ''}</div><span class="room-player-role">${role}</span></div></div>
         <div class="room-seat-foot">${occupied ? `<span>累计分 <b class="${score > 0 ? 'positive' : score < 0 ? 'negative' : ''}">${score > 0 ? '+' : ''}${score}</b></span>` : '<span>等待入座</span>'}
         ${s.bot && canEdit ? `<button class="ol-mini" data-act="removebot" data-uid="${esc(s.uid)}">移除人机</button>` : ''}</div></article>`;
     }).join('');
@@ -168,6 +175,7 @@
         case 'removebot': Net.send({ t: 'removebot', uid: btn.dataset.uid }); break;
         case 'ready': toggleReady(); break;
         case 'chat': root.GZChat?.toggle(); break;
+        case 'rename': root.GZUI?.openRenameDialog(); break;
         case 'start':
           root.GZViewport.enter();
           if (room.running) enterTable();
@@ -183,5 +191,5 @@
     });
     node.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'ol-code') node.querySelector('[data-act="join"]').click(); });
   }
-  root.GZOnline = { init, show, hide, readyInfo, toggleReady, get room() { return room; }, get started() { return started; }, resetStarted() { started = false; } };
+  root.GZOnline = { init, show, hide, readyInfo, toggleReady, rename, get room() { return room; }, get started() { return started; }, resetStarted() { started = false; } };
 })(typeof window !== 'undefined' ? window : globalThis);

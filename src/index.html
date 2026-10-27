@@ -27,6 +27,7 @@
             <button id="btn-difficulty" class="tb-btn game-only" title="切换本地人机难度">难度 普通</button>
             <button id="btn-rules" class="tb-btn" title="查看规则">规则</button>
             <button id="btn-chat" class="tb-btn hidden" title="房间聊天" aria-controls="room-chat" aria-expanded="false">聊天<span id="chat-unread" class="chat-unread hidden" aria-hidden="true"></span></button>
+            <button id="btn-rename" class="tb-btn game-only hidden" title="修改本房间昵称">修改昵称</button>
             <button id="btn-reset-scores" class="tb-btn game-only" title="清空当前玩法牌桌上的四家累计分数">清空分数</button>
             <button id="btn-new" class="tb-btn game-only" title="重新开一局">新的一局</button>
             <button id="btn-result" class="tb-btn game-only hidden" title="重新打开本局结算">本局结算</button>
@@ -102,6 +103,15 @@
     </section>
     <div id="toast" role="status" aria-live="polite"></div>
     <div id="overlay" class="hidden" role="dialog" aria-label="游戏详情"></div>
+    <dialog id="rename-dialog" aria-labelledby="rename-title">
+      <form method="dialog" id="rename-form">
+        <h2 id="rename-title">修改昵称</h2>
+        <p>新昵称会同步给同桌玩家（最多 10 个字）。</p>
+        <label for="rename-input">昵称</label>
+        <input id="rename-input" name="name" maxlength="10" autocomplete="nickname" required />
+        <div class="rename-actions"><button type="button" class="btn-ghost" id="rename-cancel">取消</button><button type="submit" class="btn-primary" value="save">保存并同步</button></div>
+      </form>
+    </dialog>
     <div id="tip" class="hidden"></div>
   </div>
 

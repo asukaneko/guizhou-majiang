@@ -97,6 +97,19 @@
     el.online = $('#online');
     el.resultBtn = $('#btn-result');
     el.menu = $('#tb-menu');
+    el.renameBtn = $('#btn-rename');
+    el.renameDialog = $('#rename-dialog');
+    el.renameForm = $('#rename-form');
+    el.renameInput = $('#rename-input');
+  }
+
+  function openRenameDialog() {
+    if (!game?.isRemote || !window.GZOnline.room || window.GZNet.status() !== 'open') {
+      toast('连接房间后才能修改昵称'); return;
+    }
+    el.renameInput.value = P.get().name;
+    el.renameDialog.showModal();
+    el.renameInput.focus(); el.renameInput.select();
   }
 
   /* ---------------- 出牌速度 ---------------- */
@@ -156,6 +169,7 @@
     el.autoBtn.classList.toggle('on', enabled);
     el.autoBtn.setAttribute('aria-pressed', String(enabled));
     el.resultBtn.classList.toggle('hidden', !(game?.phase === 'ended' && game.result));
+    el.renameBtn.classList.toggle('hidden', !(game?.isRemote && window.GZOnline?.room));
     refreshRoundActions();
   }
 
@@ -1003,6 +1017,16 @@
 
     el.autoBtn.addEventListener('click', toggleAuto);
 
+    $('#rename-cancel').addEventListener('click', () => el.renameDialog.close());
+    el.renameForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = el.renameInput.value.trim().slice(0, 10);
+      if (!name) { el.renameInput.focus(); return; }
+      if (!window.GZOnline.rename(name)) { toast('连接恢复后再试着改名'); return; }
+      el.renameDialog.close();
+      toast('昵称已同步给同桌');
+    });
+    el.renameBtn.addEventListener('click', openRenameDialog);
     el.soundBtn.addEventListener('click', () => {
       Sound.enabled = !Sound.enabled;
       el.soundBtn.textContent = `音效 ${Sound.enabled ? '开' : '关'}`;
@@ -1306,7 +1330,7 @@
     window.GZChat.init();
     GZLobby.init({ onEnter: enterMode, onRules: showRules, onRender: fit, onOnline: showOnline,
       getPracticeSettings: () => ({ aiDifficulty, botSpeed: SPEEDS[speedIdx].id }), onPracticeSettings: practiceSettings });
-    window.__ui = { enterMode, showLobby, showOnline, showOnlineRoom, showRules, showResult, hideResult, fit };
+    window.__ui = { enterMode, showLobby, showOnline, showOnlineRoom, showRules, showResult, hideResult, openRenameDialog, fit };
     window.GZUI = window.__ui;   // 供 online.js / lobby.js 回调返回大厅、联机面板
 
     // 联机消息只在启动时挂一次；onNetMsg 自己判断当前牌桌

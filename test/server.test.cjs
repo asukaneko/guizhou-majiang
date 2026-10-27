@@ -383,3 +383,19 @@ test('HTTP /stats 返回在线人数与房间数（无需 WS 会话）', async (
   assert.deepEqual(await res2.json(), { online: 1, rooms: 1 });
   c.ws.close();
 });
+
+test('房间内改名：hello 更新本人座位并广播给同桌', async (t) => {
+  const app = await server(t);
+  const host = await client(app);
+  host.send({ t: 'create' });
+  const { room } = await host.wait('joined');
+  const guest = await client(app);
+  guest.send({ t: 'join', room: room.id });
+  await guest.wait('joined');
+  host.send({ t: 'hello', name: '新昵称' });
+  await host.wait('hello-ok', (m) => m.name === '新昵称');
+  const update = await guest.wait('room', (m) => m.room.seats.some((s) => s.uid === host.welcome.uid && s.name === '新昵称'));
+  assert.equal(update.room.seats.find((s) => s.uid === host.welcome.uid).name, '新昵称');
+  assert.equal(app.rooms.get(room.id).game, null);
+  host.ws.close(); guest.ws.close();
+});

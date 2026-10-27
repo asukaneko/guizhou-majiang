@@ -1669,8 +1669,22 @@ body.is-remote #btn-difficulty, body.is-remote #btn-reset-scores { display: none
 .room-avatar.bot { background: #294b37; color: #c3e7c9; border-color: #557a5f; }
 .room-seat.empty .room-avatar { border-style: dashed; border-color: #526958; background: transparent; color: #a9bdad; font-size: 24px; }
 .room-player-info { min-width: 0; }
+.room-name-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .room-player .ol-seat-name { margin: 0 0 5px; color: #f1eee0; font-size: 15px; }
+.room-rename { flex: 0 0 auto; border: 0; padding: 2px 0; background: none; color: #d6bd79; font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1.2; cursor: pointer; }
+.room-rename:hover { color: #fff0bd; text-decoration: underline; }
+.room-rename:focus-visible { outline: 2px solid #e7c878; outline-offset: 2px; border-radius: 3px; }
 .room-player-role { color: #a9c0af; font-size: 12px; }
+#rename-dialog { width: min(390px, calc(100vw - 32px)); border: 1px solid rgba(231,200,120,.38); border-radius: 18px; padding: 0; color: #dbe8df; background: linear-gradient(155deg,#1b3026,#0b1711); box-shadow: 0 24px 70px rgba(0,0,0,.65); }
+#rename-dialog::backdrop { background: rgba(2,8,5,.72); backdrop-filter: blur(4px); }
+#rename-form { display: grid; gap: 11px; padding: 24px; }
+#rename-form h2 { margin: 0; color: #f2e6c6; font-size: 20px; }
+#rename-form p { margin: 0 0 4px; color: #9fb6a7; font-size: 13px; }
+#rename-form label { color: #b5c9ba; font-size: 12px; }
+#rename-input { width: 100%; height: 44px; box-sizing: border-box; border: 1px solid #526e59; border-radius: 10px; padding: 0 12px; background: #09150e; color: #f2f4e9; font-family: inherit; font-size: 16px; font-weight: 500; line-height: 1; }
+#rename-input:focus-visible { outline: 2px solid #e7c878; outline-offset: 2px; }
+.rename-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 6px; }
+.rename-actions button { min-height: 40px; padding: 0 14px; }
 .room-seat-foot { min-height: 36px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 5px; border-top: 1px solid #2d4434; padding-top: 7px; font-size: 12px; color: #b0c5b5; }
 .room-seat-foot b { margin-left: 5px; color: #d9e3d5; font-variant-numeric: tabular-nums; }
 .room-seat-foot b.positive { color: #b2e4be; }
