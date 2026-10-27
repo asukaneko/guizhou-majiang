@@ -1688,9 +1688,9 @@ body.is-remote #btn-difficulty, body.is-remote #btn-reset-scores { display: none
 }
 
 /* 聊天面板独立于缩放牌桌，切换房间等待页和牌桌时保留输入与记录。 */
-#btn-chat { display: inline-flex; align-items: center; gap: 5px; }
+#btn-chat, .room-chat-launch { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 body.chat-open #app { position: fixed; top: var(--viewport-top, 0px); left: 0; }
-#chat-unread { min-width: 17px; padding: 1px 4px; border-radius: 8px; background: var(--gold); color: var(--ink); font-size: 10px; }
+.chat-unread { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; letter-spacing: 0; font-variant-numeric: tabular-nums; pointer-events: none; }
 #room-chat {
   position: absolute; z-index: 70; top: 58px; right: 12px; bottom: 12px;
   width: min(360px, calc(100% - 24px)); max-height: 620px;

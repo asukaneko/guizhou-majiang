@@ -128,7 +128,7 @@
         : !ready.all ? `等待 ${ready.waiting.join('、') || '玩家'} 点击准备，机器人自动就绪。` : '全员已准备，等待房主开局。';
     return `<div class="ol-card wide ol-room"><header class="room-header"><div class="room-identity"><h2>房间 <span class="room-code">${esc(room.id)}</span></h2>
       <div class="room-meta">${statusHtml()}<span>${esc(R.MODES[room.config.mode]?.name || room.config.mode)}</span><span>${occupiedCount} / 4 人</span><span>${room.roundNo ? `第 ${room.roundNo} / ${room.totalRounds} 局` : `${room.config.totalRounds} 局一桌`}</span></div></div>
-      <button class="btn-ghost room-chat-launch" data-act="chat" data-room-chat-toggle aria-controls="room-chat" aria-expanded="false">房间聊天</button></header>
+      <button class="btn-ghost room-chat-launch" data-act="chat" data-room-chat-toggle aria-controls="room-chat" aria-expanded="false"><span class="room-chat-label">房间聊天</span><span class="chat-unread hidden" aria-hidden="true"></span></button></header>
       <div class="room-progress" role="status"><strong>${stage}</strong><p>${esc(detail)}</p></div>
       <section class="room-players"><div class="room-section-head"><h3>同桌玩家</h3>${canEdit ? `<button class="btn-ghost" data-act="addbot" ${room.full ? 'disabled' : ''}>添加机器人</button>` : ''}</div>
       <div class="ol-seats room-seat-grid">${rows}</div></section>

@@ -33,7 +33,12 @@
     el.latest.classList.toggle('hidden', !expanded() || !unread);
     el.toggle.setAttribute('aria-label', unread ? `房间聊天，${unread} 条未读消息` : '房间聊天');
     for (const button of document.querySelectorAll('[data-room-chat-toggle]')) {
-      button.textContent = unread ? `房间聊天（${unread > 99 ? '99+' : unread}）` : expanded() ? '折叠房间聊天' : '打开房间聊天';
+      const label = expanded() ? '折叠房间聊天' : '打开房间聊天';
+      button.querySelector('.room-chat-label').textContent = label;
+      const badge = button.querySelector('.chat-unread');
+      badge.textContent = el.badge.textContent;
+      badge.classList.toggle('hidden', !unread);
+      button.setAttribute('aria-label', unread ? `${label}，${unread} 条未读消息` : label);
       button.setAttribute('aria-expanded', String(expanded()));
     }
     el.room.textContent = roomId ? `房间 ${roomId} · 最近 100 条` : '';
