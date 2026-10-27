@@ -112,6 +112,37 @@ test('首轮报听：首次出牌前无副露可声明，出牌被碰走后仍�
   online.abort(); g.abort();
 });
 
+test('联机报听与本地同口径：只有庄家起手听牌算天听，快照只给本人带起手听牌状态', async () => {
+  const run = async (dealer) => {
+    const g = new OnlineGame({ mode:'classic', dealer, speed:100, seats:[{ type:'human' }] });
+    g.phase = 'playing';
+    const me = g.players[0];
+    me.hand = ready(); me.justDrawn = 26;
+    me.tingAtDeal = true;                    // 配完 13 张就听牌
+    g.players[1].tingAtDeal = true;           // 别人也起手听牌，但不下发
+    const notes = [];
+    g.on('message', (t) => notes.push(t));
+    const pending = g.waitRemoteDiscard(0, g.selfActions(0));
+    const prompt = g.prompts.get(0);
+    assert.equal(g.remoteAction(0, { type:'ting', promptId: prompt.id }).ok, true);
+    const snap = snapshot(g, 0);
+    assert.equal((await pending).type, 'discard');
+    g.abort();
+    return { me, notes, snap };
+  };
+
+  const host = await run(0);                  // 自己是庄家
+  assert.equal(host.me.tingDeclared, true);
+  assert.equal(host.me.tianTing, true, '庄家起手听 = 天听');
+  assert.match(host.notes.at(-1), /天听/);
+  assert.equal(host.snap.players[0].tingAtDeal, true);
+  assert.equal(host.snap.players[1].tingAtDeal, false, '别人的起手听牌状态不下发');
+
+  const guest = await run(1);                 // 庄家是下家
+  assert.equal(guest.me.tianTing, false, '非庄家起手听只算报听');
+  assert.match(guest.notes.at(-1), /报听/);
+});
+
 test('杠与责任鸡：杠每份4、责任鸡2分，操作时只记账不扣分', async () => {
   for (const type of ['minggang','angang','bugang']) {
     const g = make();

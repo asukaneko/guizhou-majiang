@@ -645,6 +645,26 @@
       return true;
     }
 
+    /**
+     * 天听判定：庄家配完 13 张就听牌（无副露、未出牌）才算天听；
+     * 非庄家即便起手就听，也一律按报听算。
+     */
+    isTianTing(pl) {
+      return pl.id === this.dealer && !!pl.tingAtDeal && !pl.discards.length && !pl.melds.length;
+    }
+
+    /** 声明报听（本地与联机共用）：锁牌、播报、发 ting 事件 */
+    declareTing(p, tile) {
+      const pl = this.players[p];
+      pl.tingDeclared = true;
+      pl.tianTing = this.isTianTing(pl);
+      this.note(pl.tianTing
+        ? `${pl.name} 天听：庄家起手 13 张就听牌，打出 ${R.tileName(tile)} 后锁牌，胡牌 +${BONUS.tianting}`
+        : `${pl.name} 报听：打出 ${R.tileName(tile)} 后锁牌，胡牌 +${BONUS.baoting}`);
+      this.emit('ting', { p, tianTing: pl.tianTing, tile });
+      return pl.tianTing;
+    }
+
     /** 报听：锁牌，之后摸什么打什么，见胡就胡 */
     humanTing() {
       const a = this.awaiting;
@@ -653,12 +673,7 @@
       if (!R.canDeclareTing(pl)) return false;
       const tile = this.bestTingDiscard(0);
       if (tile == null) return false;
-      pl.tingDeclared = true;
-      pl.tianTing = !!pl.tingAtDeal && !pl.discards.length && !pl.melds.length;
-      this.note(pl.tianTing
-        ? `${pl.name} 天听：打出 ${R.tileName(tile)} 后锁牌，胡牌 +${BONUS.tianting}`
-        : `${pl.name} 报听：打出 ${R.tileName(tile)} 后锁牌，胡牌 +${BONUS.baoting}`);
-      this.emit('ting', { p: 0, tianTing: pl.tianTing, tile });
+      this.declareTing(0, tile);
       this.awaiting = null;
       this.emitState();
       a.resolve({ type: 'discard', tile });

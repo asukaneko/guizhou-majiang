@@ -229,10 +229,7 @@ class OnlineGame extends Game {
         if (!R.canDeclareTing(pl)) return { ok: false, err: '只能在本人首次出牌前且无副露时报听' };
         const tile = this.bestTingDiscard(p);
         if (tile == null) return { ok: false, err: '还没听牌，不能报听' };
-        pl.tingDeclared = true;
-        pl.tianTing = !!pl.tingAtDeal && !pl.discards.length && !pl.melds.length;
-        this.note(`${pl.name} ${pl.tianTing ? '天听' : '报听'}：打出 ${R.tileName(tile)} 后锁牌`);
-        this.emit('ting', { p, tianTing: pl.tianTing, tile });
+        this.declareTing(p, tile);
         this.finishPrompt(p, { type: 'discard', tile });
         return { ok: true };
       }

@@ -300,6 +300,54 @@ test('报听：锁牌、天听判定，出张就是保持听牌的那张', () =>
   assert.deepEqual(g.selfActions(0).angang, []);
 });
 
+test('天听只给庄家：庄家起手听算天听 +40，非庄家起手听也只算报听 +20', () => {
+  const declare = (dealer) => {
+    const g = new Game({ dealer, speed: 100 });
+    g.phase = 'playing';
+    g.wall = [];
+    const pl = g.players[0];
+    pl.hand = R.sortHand(READY14());
+    pl.justDrawn = c(TI, 9);
+    pl.tingAtDeal = true;   // 配完 13 张就听牌
+    const notes = [];
+    g.on('message', (t) => notes.push(t));
+    g.awaiting = { kind: 'discard', player: 0, self: { hu: null, angang: [], bugang: [] }, resolve() {} };
+    assert.equal(g.humanTing(), true);
+    return { g, pl, notes };
+  };
+
+  const host = declare(0);                    // 自己是庄家
+  assert.equal(host.pl.tianTing, true);
+  assert.match(host.notes.at(-1), /天听/);
+  host.g.players[0].hand = WIN14();
+  const a = host.g.settleWin([{ p: 0, winTile: null }], { selfDraw: true });
+  assert.equal(a.winners[0].points, 4 + 1 + R.BONUS.tianting);
+  assert.ok(a.winners[0].extra.includes(`天听 +${R.BONUS.tianting}`));
+
+  const guest = declare(1);                   // 庄家是下家，自己不是庄
+  assert.equal(guest.pl.tianTing, false, '非庄家起手听牌不算天听');
+  assert.match(guest.notes.at(-1), /报听/);
+  guest.g.players[0].hand = WIN14();
+  const b = guest.g.settleWin([{ p: 0, winTile: null }], { selfDraw: true });
+  assert.equal(b.winners[0].points, 4 + 1 + R.BONUS.baoting);
+  assert.ok(b.winners[0].extra.includes(`报听 +${R.BONUS.baoting}`));
+  assert.ok(!b.winners[0].extra.includes('天听'));
+});
+
+test('庄家配牌没听、首巡才听成，也只按报听算', () => {
+  const g = new Game({ dealer: 0, speed: 100 });
+  g.phase = 'playing';
+  g.wall = [];
+  const pl = g.players[0];
+  pl.hand = R.sortHand(READY14());
+  pl.justDrawn = c(TI, 9);
+  pl.tingAtDeal = false;
+  g.awaiting = { kind: 'discard', player: 0, self: { hu: null, angang: [], bugang: [] }, resolve() {} };
+  assert.equal(g.humanTing(), true);
+  assert.equal(pl.tianTing, false);
+  assert.equal(g.isTianTing(pl), false);
+});
+
 test('报听 / 天听 / 天胡 / 热炮 / 抢杠 的加分', () => {
   const g = new Game({ dealer: 0 });
   g.phase = 'playing';

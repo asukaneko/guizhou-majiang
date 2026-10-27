@@ -367,11 +367,18 @@
     });
   }
 
+  /** 自己这手牌能不能算天听（庄家起手 13 张就听牌） */
+  function myTianTing() {
+    const me = game && game.players ? game.players[0] : null;
+    return !!(me && game.isTianTing && game.isTianTing(me));
+  }
+
   function turnLabel() {
     if (game.phase === 'ended') return '本局结束';
     if (game.awaiting && game.awaiting.kind === 'claim') return '等你决定 · 碰 / 杠 / 胡';
     if (game.awaiting && game.awaiting.auto) {
-      return game.awaiting.ting ? '报听中' : '人机代打中';
+      if (!game.awaiting.ting) return '人机代打中';
+      return myTianTing() ? '天听中' : '报听中';
     }
     const p = game.players[game.turn];
     if (!p) return '';
@@ -397,13 +404,19 @@
       if (a.auto) {
         const action = a.autoAction === 'gang' ? (a.autoGangType === 'angang' ? '暗杠 ' : '补杠 ') + TN(a.autoTile)
           : a.autoTile != null ? '打出 ' + TN(a.autoTile) : '自摸';
-        html += `<div class="auto-hint">${a.ting ? '报听' : '人机代打'} · ${action}</div>`;
+        html += `<div class="auto-hint">${a.ting ? (myTianTing() ? '天听' : '报听') : '人机代打'} · ${action}</div>`;
       } else {
         const s = a.self || {};
         if (s.hu) html += `<button class="action-btn hu" data-act="hu">胡 ${s.hu.name}</button>`;
         (s.angang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="angang" data-tile="${t}">暗杠 ${TN(t)}</button>`; });
         (s.bugang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="bugang" data-tile="${t}">补杠 ${TN(t)}</button>`; });
-        if (game.canTing(0)) html += '<button class="action-btn ting" data-act="ting">报听</button>';
+        if (game.canTing(0)) {
+          const tian = myTianTing();
+          const tip = tian
+            ? `庄家配完 13 张就听牌，胡牌 +${R.BONUS.tianting}`
+            : `首次出牌前锁牌，胡牌 +${R.BONUS.baoting}（天听需庄家起手就听）`;
+          html += `<button class="action-btn ting" data-act="ting" title="${tip}">${tian ? '天听' : '报听'}</button>`;
+        }
         const chong = wildHint();
         if (chong) html += `<div class="auto-hint chong-hint">${chong}</div>`;
       }
@@ -842,7 +855,7 @@
     </ul>
 
     <h3>报听 / 天听</h3>
-    <p>只能在本人首次出牌前、无副露且可以打牌听牌时点「<span class="hl">报听</span>」（+${R.BONUS.baoting}）：系统替你打出保持听牌的牌，之后手牌锁定，不能碰杠，摸什么打什么，见胡就胡。起手13张就听牌并报听算<span class="hl">天听</span>（+${R.BONUS.tianting}），替代报听加分。</p>
+    <p>只能在本人首次出牌前、无副露且可以打牌听牌时点「<span class="hl">报听</span>」（+${R.BONUS.baoting}）：系统替你打出保持听牌的牌，之后手牌锁定，不能碰杠，摸什么打什么，见胡就胡。<span class="hl">庄家</span>配完 13 张就听牌并报听算<span class="hl">天听</span>（+${R.BONUS.tianting}），替代报听加分；<span class="hl">非庄家</span>就算开局 13 张就听牌，也只按报听（+${R.BONUS.baoting}）算。</p>
 
     <h3>黄庄</h3>
     <p>牌墙摸完按查叫结算：未叫的人赔给每个叫牌者「其最高基础牌型的分值」，不加报听、天听或硬胡。杠和责任鸡作废，不翻牌、不算普通鸡；已发生的冲幺筒保留。</p>
@@ -865,7 +878,7 @@
     <ul>
       <li>天胡 <span class="hl">+${R.BONUS.tianhu}</span>：庄家配牌后第一摸就自摸</li>
       <li>地胡 <span class="hl">+${R.BONUS.dihu}</span>：下家第一摸自摸，或单独胡庄家打出的第一张</li>
-      <li>报听 <span class="hl">+${R.BONUS.baoting}</span>、天听 <span class="hl">+${R.BONUS.tianting}</span>：本人首次出牌前声明，天听替代报听加分</li>
+      <li>报听 <span class="hl">+${R.BONUS.baoting}</span>、天听 <span class="hl">+${R.BONUS.tianting}</span>：本人首次出牌前声明；庄家配完 13 张即听牌算天听，其余（含非庄家起手听牌）都算报听，天听替代报听加分</li>
       <li>抢杠胡 <span class="hl">+${R.BONUS.qianggang}</span>，补杠者向每位胡家付一份</li>
       <li>热炮 <span class="hl">+${R.BONUS.repao}</span>：杠后打出的那张牌被别人胡</li>
     </ul>

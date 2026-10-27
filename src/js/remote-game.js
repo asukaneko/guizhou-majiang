@@ -104,6 +104,12 @@
       return R.canDeclareTing(pl) && this.bestTingDiscard(p) != null;
     }
 
+    /** 天听判定只看自己的起手牌：庄家配完 13 张就听牌（服务端只在本人座位上带 tingAtDeal） */
+    isTianTing(pl) {
+      return !!pl && pl.id === this.dealer && !!pl.tingAtDeal
+        && !(pl.discards || []).length && !(pl.melds || []).length;
+    }
+
     autoDecision(p, self) {
       const pl = this.players[p];
       if (!pl || !pl.hand || pl.hand.length !== 14 - pl.melds.length * 3) return null;

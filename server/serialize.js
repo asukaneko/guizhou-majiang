@@ -127,6 +127,7 @@ function snapshot(game, forSeat) {
       said: p.said,
       tingDeclared: !!p.tingDeclared,
       tianTing: !!p.tianTing,
+      tingAtDeal: mine ? !!p.tingAtDeal : false,
       justDrawn: mine ? p.justDrawn : null
     };
   }).sort((a, b) => a.id - b.id);
