@@ -115,6 +115,7 @@ function snapshot(game, forSeat) {
       handCount: p.hand.length,
       melds: p.melds.map((m) => meldView(m, mine, forSeat)),
       discards: p.discards.slice(),
+      discardCount: p.discardCount,
       said: p.said,
       tingDeclared: !!p.tingDeclared,
       tianTing: !!p.tianTing,
@@ -150,6 +151,8 @@ function snapshot(game, forSeat) {
   return {
     phase: game.phase,
     mode: game.mode.id,
+    aiDifficulty: game.aiDifficulty,
+    botSpeed: game.botSpeed,
     roundNo: game.roundNo,
     roundId: game.roundId,
     dealer: rotateSeat(game.dealer, forSeat),

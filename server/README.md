@@ -62,14 +62,16 @@ WebSocket 走同端口的 Upgrade。朋友不装任何东西，浏览器就能�
 | --- | --- | --- |
 | `hello` | `{name}` | 报昵称（≤10 字），进房前随时可改 |
 | `resume` | `{token}` | 使用 `welcome.resumeToken` 恢复原会话；掉线后保留 60 秒。凭据仅保存在同一标签页的 sessionStorage，按服务器地址隔离。 |
-| `create` | `{config:{mode, totalRounds}}` | 建房，创建者即房主、坐 0 号位；`mode` 取 `rules.js` 的 `MODES` 键（`classic` / `yitong`） |
+| `create` | `{config:{mode,totalRounds,aiDifficulty?,botSpeed?}}` | 建房，创建者即房主、坐 0 号位；`mode` 取 `rules.js` 的 `MODES` 键（`classic` / `yitong`），人机难度和速度默认 `normal` |
 | `join` | `{room:"4321"}` | 用房号进房，坐第一个空位 |
 | `addbot` | — | 房主：往空位补一个机器人（名字取自内部池，不与在场重复） |
 | `removebot` | `{uid}` | 房主：移除机器人（对局中禁止） |
-| `config` | `{config:{mode,totalRounds}}` | 房主：改玩法/局数（对局中禁止；局数 1–64） |
+| `config` | `{config:{mode?,totalRounds?,aiDifficulty?,botSpeed?}}` | 房主：局间配置玩法、局数（1–64）、人机难度 `easy/normal/hard` 和速度 `slow/normal/fast`。对局中可单独改 `botSpeed`，修改不影响真人操作超时或待办提示。 |
 | `start` | — | 房主：开局。要求 4 座位全满（真人或机器人） |
 | `next` | — | 房主：开下一局（本局已结束、未到约定局数） |
 | `newtable` | — | 房主：打满后按当前配置开启新桌；要求满座且真人在线，保留房号/座位并继承累计分，局数重新开始 |
+| `ready` | `{ready:boolean,roundId,readyId}` | 非房主真人：结算后准备或取消准备。使用当前 `room` 消息中的 `roundId` 和 `readyId`，过期结算或配置的请求被拒绝。 |
+| `chat` | `{text,clientId?}` | 同房间文字聊天，等待/对局/结算期间均可；最多 200 个 Unicode 字符，每位玩家发送间隔至少 750ms。发送者身份由当前会话确定；可选 `clientId` 为 1–64 位字母、数字、下划线或连字符，用于匹配发送确认。 |
 | `action` | `{action:{...}}` | 对局内操作，见下表 |
 | `leave` | — | 主动退房 |
 | `ping` | — | 心跳（客户端每 25s 发一次），回 `pong` |
@@ -98,6 +100,9 @@ WebSocket 走同端口的 Upgrade。朋友不装任何东西，浏览器就能�
 | `joined` | `{room}` | 进房确认（载荷同 `room`） |
 | `room` | `{room}` | 房间状态：房号、座位表（名字/机器人/房主/你是否该座）、配置、是否满员/对局中、`finished`（本桌已打满）、累计分；`totalRounds` 为本桌约定局数，`config.totalRounds` 在完桌后可配置为下一桌局数 |
 | `snapshot` | `{snap, fx}` | 对局快照 + 自上次快照以来的特效，见下 |
+| `chat` | `{roomId,message:{id,uid,name,seat,text,at,clientId?}}` | 仅同房间在线真人收到，含发送者本人；时间 `at` 为服务端毫秒时间戳。客户端以纯文字渲染消息。 |
+| `chat-history` | `{roomId,messages:[...]}` | 进房、恢复会话及 `sync` 时补发最近 100 条，跨桌保留；房间解散或服务器重启后清理。 |
+| `chat-error` | `{roomId,err,clientId?}` | 聊天校验或限流失败，只通知发送者，客户端保留草稿。 |
 | `error` | `{err}` | 上一步被拒的原因（例如「只有房主能开局」「手里没有这张牌」） |
 | `left` | — | 退房确认 |
 | `pong` | — | 心跳应答 |
@@ -115,7 +120,7 @@ snap = {
     botPlay,                         // 真人座位是否启用人机代打
     hand: [...], handCount,           // hand 只有你有，别人是 []
     melds: [{type, tile, from, tiles}], // 暗杠只有杠家看得到牌面，别人 tiles=[]
-    discards, said, tingDeclared, tianTing, justDrawn
+    discards, discardCount, said, tingDeclared, tianTing, justDrawn // discardCount 为本局累计出牌次数
   },
   awaiting,                           // 你的待办提示（没有则 null），见下
   autoPlay,                           // 本人座位的代打开关
@@ -162,6 +167,8 @@ create ──► 等人(join) ──► addbot 凑满 ──► start ──► 
 - **局数限制**：`start` 与 `next` 都检查总局数；不能通过重复 `start` 越过约定局数。
 - **连续开桌**：打满后可修改下一桌配置、增删机器人，再由房主发送 `newtable`。校验通过后以当前座位创建新对局，继承上一桌累计分、第 1 局、0 号座位起庄；房号、房主、会话和人机代打设置保留。配置下一桌不会延长已完结的上一桌，开桌失败时仍保留上一桌结算。
 - **累计分生命周期**：同房间内持续继承各座位分数，增删机器人及换玩法照常保留。房主主动退房（含切换到另一房间）后，`resetScoresOnNewTable` 标记下一桌重新计分；当前桌结算保留。断线重连、会话过期、自动转移房主和普通玩家退房不触发该标记。新房间从 0 分开始。
+- **人机设置**：`config.aiDifficulty` 默认为 `normal`，`config.botSpeed` 默认为 `normal`。设置传入每次创建的 `OnlineGame` 并同步到房间消息和对局快照，换局、原房新桌、掉线恢复保持一致。所有机器人及人机代打使用同一难度，仅依据本人手牌和公开信息决策；调速改变出牌/动画节奏，真人提示的 60s/20s 计时保持原值。
+- **结算准备**：首桌无需结算准备。之后的 `start`、`next`、`newtable` 共用服务端校验，要求满座、真人在线、所有非房主真人准备齐全。`room.roundId` 标识结算局，`room.readyId` 标识当前准备阶段，`room.allReady` 表示是否全部满足，`room.seats[].ready` 展示各座位状态（房主和机器人自动就绪）。每次开局、结算、局间修改玩法/局数/难度时清除真人准备并更新 `readyId`，调速不清除；断线恢复保留本人准备，房主身份变化后按当前身份校验。人机代打不代替真人确认准备。
 - **进房原子性**：加入不存在、满员或进行中的目标房间失败时，保留原房间；重复加入当前房间只补发状态。
 
 ## 超时与掉线
@@ -222,6 +229,10 @@ npm run e2e:ui      # UI 级端到端：Electron 真窗口点完一局（含结�
 网页脚本测试使用 DOM 桩，不能替代手机真机的视觉与触摸验收。
 `test/autoplay.test.cjs`（6 项）验证接管与取消、自动碰杠胡、联机各座位独立设置和真实 WS 连续两局代打。
 `test/ai.test.cjs`（12 项）验证向听数和规则交叉一致、可见进张、有限前瞻、七对保护、碰杠风险、财神冲分与信息边界。
+`test/chat.test.cjs`（8 项）覆盖同房隔离、身份校验、Unicode 字数及限流、历史上限、跨桌及重连、草稿确认、未读、纯文字显示、中文输入法、PC 常驻侧栏与手机横屏/软键盘逻辑。
+`test/difficulty.test.cjs`（5 项）验证难度策略差异、合法出牌与报听规则、配置校验及权限、真实 WS 局中调速/重连/跨桌保留，并完成三档难度与两种玩法的六局全自动对局。
+`test/scoring.test.cjs`（8 项）核对12种牌型和附加分、双龙/三龙及财神、首次出牌前报听、快照资格、14分吃炮门槛、抢杠多响一份赔付、4分杠与3分责任鸡、黄庄查叫及零和。
+`test/ready.test.cjs`（5 项）覆盖多人准备与取消、所有开局入口拦截、每局/配置重置、跨桌等待、断线与房主转移，以及真实 WS 的广播、跨房身份校验和过期消息拒绝。
 
 ## 边界与注意事项
 

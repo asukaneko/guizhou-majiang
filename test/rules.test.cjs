@@ -12,37 +12,37 @@ test('平胡：4 面子 + 1 将', () => {
   const info = R.winInfo(h, []);
   assert.ok(info);
   assert.equal(info.name, '平胡');
-  assert.equal(info.points, 1);
+  assert.equal(info.points, 4);
 });
 
 test('清一色：整副同一门', () => {
   const h = handOf([[W,1],[W,2],[W,3],[W,4],[W,5],[W,6],[W,7],[W,8],[W,9],[W,1],[W,2],[W,3],[W,5],[W,5]]);
   const info = R.winInfo(h, []);
   assert.equal(info.name, '清一色');
-  assert.equal(info.points, 10);
+  assert.equal(info.points, 24);
 });
 
 test('大对子 / 清大对', () => {
   const mixed = handOf([[W,1],[W,1],[W,1],[TI,2],[TI,2],[TI,2],[P,3],[P,3],[P,3],[W,4],[W,4],[W,4],[P,5],[P,5]]);
   assert.equal(R.winInfo(mixed, []).name, '大对子');
-  assert.equal(R.winInfo(mixed, []).points, 5);
+  assert.equal(R.winInfo(mixed, []).points, 14);
   const pure = handOf([[W,1],[W,1],[W,1],[W,2],[W,2],[W,2],[W,3],[W,3],[W,3],[W,4],[W,4],[W,4],[W,5],[W,5]]);
   assert.equal(R.winInfo(pure, []).name, '清大对');
-  assert.equal(R.winInfo(pure, []).points, 15);
+  assert.equal(R.winInfo(pure, []).points, 34);
 });
 
 test('七对 / 龙七对 / 清七对', () => {
   const seven = handOf([[W,1],[W,1],[W,2],[W,2],[TI,3],[TI,3],[P,4],[P,4],[P,5],[P,5],[TI,6],[TI,6],[P,7],[P,7]]);
   assert.equal(R.winInfo(seven, []).name, '七对');
-  assert.equal(R.winInfo(seven, []).points, 7);
+  assert.equal(R.winInfo(seven, []).points, 24);
 
   const dragon = handOf([[W,1],[W,1],[W,1],[W,1],[W,2],[W,2],[TI,3],[TI,3],[P,4],[P,4],[P,5],[P,5],[TI,6],[TI,6]]);
   assert.equal(R.winInfo(dragon, []).name, '龙七对');
-  assert.equal(R.winInfo(dragon, []).points, 10);
+  assert.equal(R.winInfo(dragon, []).points, 44);
 
   const pure = handOf([[W,1],[W,1],[W,2],[W,2],[W,3],[W,3],[W,4],[W,4],[W,5],[W,5],[W,6],[W,6],[W,7],[W,7]]);
   assert.equal(R.winInfo(pure, []).name, '清七对');
-  assert.equal(R.winInfo(pure, []).points, 17);
+  assert.equal(R.winInfo(pure, []).points, 44);
 });
 
 test('副露参与判定', () => {
@@ -63,29 +63,29 @@ test('听牌判定', () => {
   const h = handOf([[W,1],[W,2],[W,3],[W,4],[W,5],[W,6],[W,7],[W,8],[W,9],[TI,1],[TI,2],[TI,3],[P,5]]);
   const waits = R.tenpaiTiles(h, []);
   assert.deepEqual(waits, [c(P,5)]);
-  assert.equal(R.tingValue(h, []).points, 1);
+  assert.equal(R.tingValue(h, []).points, 4);
 });
 
 test('吃炮通行证', () => {
-  const ping = { points: 1, kongs: 0 };
-  const duizi = { points: 5, kongs: 0 };
-  const withKong = { points: 1, kongs: 1 };
+  const ping = { points: 4, kongs: 0 };
+  const duizi = { points: 14, kongs: 0 };
+  const withKong = { points: 4, kongs: 1 };
   assert.equal(R.canChiPao(ping), false);
   assert.equal(R.canChiPao(duizi), true);
-  assert.equal(R.canChiPao(withKong), true);
+  assert.equal(R.canChiPao(withKong), false);
 });
 
 test('鸡：幺鸡 / 乌骨鸡 / 翻牌鸡 / 金鸡', () => {
   const set = R.chickenSet(c(W,5));
   assert.deepEqual(set.map((x) => x.tile).sort((a, b) => a - b), [c(W,6), R.YAOJI, R.WUGU].sort((a, b) => a - b));
-  assert.equal(set.find((x) => x.tile === R.YAOJI).rate, 1);
+  assert.equal(set.find((x) => x.tile === R.YAOJI).rate, 2);
   assert.equal(set.find((x) => x.tile === R.WUGU).rate, 2);
   assert.equal(set.find((x) => x.tile === c(W,6)).rate, 1);
 
-  const golden = R.chickenSet(c(TI,9)); // 翻 9 条 → 翻牌鸡正好是幺鸡，金鸡翻倍 2 分
+  const golden = R.chickenSet(c(TI,9)); // 翻 9 条，金鸡一条每张 4 分
   const yao = golden.find((x) => x.tile === R.YAOJI);
   assert.equal(yao.kind, '金鸡');
-  assert.equal(yao.rate, 2);
+  assert.equal(yao.rate, 4);
 
   const goldenWu = R.chickenSet(c(P,7)); // 翻 7 筒 → 翻牌鸡是八筒，金鸡 4 分
   assert.equal(goldenWu.find((x) => x.tile === R.WUGU).rate, 4);
@@ -96,8 +96,8 @@ test('鸡：幺鸡 / 乌骨鸡 / 翻牌鸡 / 金鸡', () => {
     [R.WUGU],
     R.chickenSet(c(W,5))
   );
-  // 幺鸡：手牌 2 + 副露 3 = 5 分；乌骨鸡：牌河 1 张 ×2 = 2 分 → 共 7
-  assert.equal(pts, 7);
+  // 幺鸡五张各 2 分，乌骨鸡一张 2 分，共 12 分。
+  assert.equal(pts, 12);
 });
 
 test('Game 可从本地存档恢复四家累计分数', () => {
@@ -306,8 +306,8 @@ test('报听 / 天听 / 天胡 / 热炮 / 抢杠 的加分', () => {
   g.wall = [];
   g.players[0].hand = WIN14();
   const res = g.settleWin([{ p: 0, winTile: null }], { selfDraw: true });
-  // 平胡 1 + 自摸 1 = 2
-  assert.equal(res.winners[0].points, 2);
+  // 平胡 4 + 自摸 1 = 5。
+  assert.equal(res.winners[0].points, 5);
 
   const g2 = new Game({ dealer: 0 });
   g2.phase = 'playing';
@@ -315,8 +315,8 @@ test('报听 / 天听 / 天胡 / 热炮 / 抢杠 的加分', () => {
   g2.players[0].hand = WIN14();
   g2.players[0].tingDeclared = true;
   const baoting = g2.settleWin([{ p: 0, winTile: null }], { selfDraw: true });
-  assert.equal(baoting.winners[0].points, 5); // 1 + 自摸1 + 报听3
-  assert.ok(baoting.winners[0].extra.includes('报听 +3'));
+  assert.equal(baoting.winners[0].points, 25); // 4 + 自摸1 + 报听20
+  assert.ok(baoting.winners[0].extra.includes('报听 +20'));
 
   const g3 = new Game({ dealer: 0 });
   g3.phase = 'playing';
@@ -325,24 +325,24 @@ test('报听 / 天听 / 天胡 / 热炮 / 抢杠 的加分', () => {
   g3.players[0].tingDeclared = true;
   g3.players[0].tianTing = true;
   const tianting = g3.settleWin([{ p: 0, winTile: null }], { selfDraw: true });
-  assert.equal(tianting.winners[0].points, 8); // 1 + 1 + 天听6
-  assert.ok(tianting.winners[0].extra.includes('天听 +6'));
+  assert.equal(tianting.winners[0].points, 45); // 4 + 自摸1 + 天听40
+  assert.ok(tianting.winners[0].extra.includes('天听 +40'));
 
   const g4 = new Game({ dealer: 0 });
   g4.phase = 'playing';
   g4.wall = [];
   g4.players[0].hand = WIN14();
   const tianhu = g4.settleWin([{ p: 0, winTile: null }], { selfDraw: true, tianhu: true });
-  assert.equal(tianhu.winners[0].points, 22); // 1 + 1 + 天胡20
+  assert.equal(tianhu.winners[0].points, 65); // 4 + 自摸1 + 天胡60
 
   const g5 = new Game({ dealer: 0 });
   g5.phase = 'playing';
   g5.wall = [];
   g5.players[0].hand = WIN14();
   const repao = g5.settleWin([{ p: 0, winTile: null }], { selfDraw: false, from: 2, repao: true });
-  assert.equal(repao.winners[0].points, 2); // 1 + 热炮1
-  assert.ok(repao.winners[0].extra.includes('热炮 +1'));
-  assert.equal(repao.winDeltas[2], -2);
+  assert.equal(repao.winners[0].points, 24); // 4 + 热炮20
+  assert.ok(repao.winners[0].extra.includes('热炮 +20'));
+  assert.equal(repao.winDeltas[2], -24);
 });
 
 test('天胡 / 地胡 的判定条件', () => {
@@ -363,7 +363,7 @@ test('天胡 / 地胡 的判定条件', () => {
   assert.equal(d.isDiHu(1, true), false);
 });
 
-test('抢杠胡：杠不成立，杠家包三家', async () => {
+test('抢杠胡：杠不成立，补杠者向胡家付一份', async () => {
   const g = new Game({ speed: 90, dealer: 0 });
   g.phase = 'playing';
   g.wall = [];
@@ -384,10 +384,10 @@ test('抢杠胡：杠不成立，杠家包三家', async () => {
   assert.equal(g.players[1].melds[0].type, 'peng');
   assert.equal(g.result.robKong, true);
   assert.equal(g.result.winner, 2);
-  // 平胡 1 + 抢杠 5 = 6，杠家包三家 → 18
-  assert.equal(g.result.winners[0].points, 6);
-  assert.equal(g.result.winDeltas[1], -18);
-  assert.equal(g.result.winDeltas[2], 18);
+  // 平胡 4 + 抢杠 20 = 24，补杠者只向该胡家付一份。
+  assert.equal(g.result.winners[0].points, 24);
+  assert.equal(g.result.winDeltas[1], -24);
+  assert.equal(g.result.winDeltas[2], 24);
   assert.equal(g.kongLog.length, 0, '抢杠时豆不成立');
 });
 
@@ -410,10 +410,10 @@ test('一炮多响：一张牌两家胡，点炮者各赔一份', async () => {
   g.phase = 'playing';
   g.wall = [];
   const tile = c(W, 5);
-  const hand = handOf([[W, 1], [W, 2], [W, 3], [W, 4], [W, 6], [TI, 1], [TI, 2], [TI, 3], [P, 5], [P, 5]]);
   for (const p of [1, 2]) {
-    g.players[p].hand = hand.slice();
-    g.players[p].melds = [{ type: 'gang', tile: c(P, 9), tiles: [c(P, 9), c(P, 9), c(P, 9), c(P, 9)], from: 3 }];
+    g.players[p].hand = handOf([[W, p], [W, p], [W, p], [TI, p + 1], [TI, p + 1], [TI, p + 1], [P, p + 4], [P, p + 4], [P, p + 4], [W, 5]]);
+    const kong = c(P, p === 1 ? 9 : 8);
+    g.players[p].melds = [{ type: 'gang', tile: kong, tiles: [kong, kong, kong, kong], from: 3 }];
   }
   // 上家打出五万
   g.players[3].hand = handOf([[W, 5], [W, 7], [TI, 4], [TI, 5], [TI, 6], [P, 1], [P, 3], [P, 4], [P, 6], [P, 7], [P, 9], [W, 9], [TI, 9]]);
@@ -425,9 +425,9 @@ test('一炮多响：一张牌两家胡，点炮者各赔一份', async () => {
 
   const res = g.settleWin(claim.winners, { selfDraw: false, from: 3 });
   assert.equal(res.winners.length, 2);
-  assert.equal(res.winDeltas[3], -2, '点炮者赔两份');
-  assert.equal(res.winDeltas[1], 1);
-  assert.equal(res.winDeltas[2], 1);
+  assert.equal(res.winDeltas[3], -28, '点炮者向两位大对子胡家各付14分');
+  assert.equal(res.winDeltas[1], 14);
+  assert.equal(res.winDeltas[2], 14);
 });
 
 test('冲锋鸡：本局第一张打出的幺鸡算双倍', () => {
@@ -443,14 +443,14 @@ test('冲锋鸡：本局第一张打出的幺鸡算双倍', () => {
   assert.equal(g.firstChicken.p, 3);
   assert.equal(g.firstChicken.taken, false);
 
-  // 玩家 1 胡牌，玩家 3 的鸡：手里 1 张 + 牌河冲锋鸡 1 张 ×2 = 3 分
+  // 玩家 3 的鸡：手里一张 2 分，牌河冲锋鸡 4 分，共 6 分。
   g.players[1].hand = WIN14();
   const res = g.settleWin([{ p: 1, winTile: null }], { selfDraw: true });
-  assert.equal(res.chickenCount[3], 3);
+  assert.equal(res.chickenCount[3], 6);
   assert.equal(res.charge.p, 3);
 });
 
-test('责任鸡：冲锋鸡被碰走，打者赔一个豆', () => {
+test('责任鸡：冲锋鸡被碰走，打者付3分', () => {
   const g = new Game({ dealer: 0 });
   g.phase = 'playing';
   g.players[0].hand = handOf([
@@ -524,12 +524,24 @@ test('整局模拟（含新规则）：分数仍为零和', { timeout: 120000 },
 
 test('报听之后整局不再要求手动出牌（锁牌自动摸打）', { timeout: 120000 }, async () => {
   const AI = require('../src/js/ai.js');
-  const g = new Game({ speed: 90, dealer: 1 });
+  const g = new Game({ speed: 90, dealer: 0 });
   let declared = false;
   let promptsAfter = 0;
   const errors = [];
   g.on('error', (e) => errors.push(e));
   g.on('ting', () => { declared = true; });
+  g.on('deal', () => {
+    // 构造合法的起手听牌牌墙，确保首次出牌前即可报听。
+    const opening = READY14(), rest = R.createWall();
+    for (const tile of opening) rest.splice(rest.indexOf(tile), 1);
+    g.players[0].hand = R.sortHand(opening.slice(0, 13));
+    g.players[0].tingAtDeal = true;
+    for (let p = 1; p < 4; p++) {
+      g.players[p].hand = R.sortHand(rest.splice(0, 13));
+      g.players[p].tingAtDeal = R.tenpaiTiles(g.players[p].hand, [], g.mode).length > 0;
+    }
+    g.wall = [opening[13], ...rest];
+  });
 
   g.on('prompt', (a) => {
     setTimeout(() => {
@@ -549,14 +561,11 @@ test('报听之后整局不再要求手动出牌（锁牌自动摸打）', { tim
   let resolveEnd = null;
   g.on('roundEnd', () => { if (resolveEnd) { const r = resolveEnd; resolveEnd = null; r(); } });
 
-  for (let i = 0; i < 8 && !declared; i++) {
-    const done = new Promise((r) => { resolveEnd = r; });
-    g.startRound();
-    await done;
-    assert.equal(errors.length, 0, '不应出现对局异常');
-    g.nextDealer = (g.dealer + 1) % 4;
-  }
-  assert.equal(declared, true, '八局之内总该听得上一把');
+  const done = new Promise((r) => { resolveEnd = r; });
+  g.startRound();
+  await done;
+  assert.equal(errors.length, 0, '不应出现对局异常');
+  assert.equal(declared, true, '起手听牌在首次出牌前成功报听');
   assert.equal(promptsAfter, 0, '报听后不该再弹手动出牌提示');
 });
 
@@ -596,7 +605,7 @@ test('幺筒模式：一筒能替任意牌，经典模式不能', () => {
   const hard = R.winInfo(HARD14(), [], 'yitong');
   assert.ok(hard);
   assert.equal(hard.hard, true);
-  assert.equal(hard.points, 1);
+  assert.equal(hard.points, 4);
   assert.equal(hard.hardBonus, R.BONUS.hardHu);
   R.setMode('classic');
 });
@@ -655,10 +664,10 @@ test('幺筒结算：硬胡 +5 进总分，本模式不捉鸡', () => {
   assert.equal(res.mode, 'yitong');
   assert.equal(res.chickens.length, 0, '没有鸡');
   assert.equal(res.winners[0].hard, true);
-  // 平胡 1 + 自摸 1 + 硬胡 5
-  assert.equal(res.winners[0].points, 1 + 1 + R.BONUS.hardHu);
+  // 平胡 4 + 自摸 1 + 硬胡 5。
+  assert.equal(res.winners[0].points, 4 + 1 + R.BONUS.hardHu);
   assert.equal(res.winDeltas.reduce((a, b) => a + b, 0), 0);
-  assert.equal(g.scores[0], (1 + 1 + R.BONUS.hardHu) * 3);
+  assert.equal(g.scores[0], (4 + 1 + R.BONUS.hardHu) * 3);
   assert.equal(res.chickenDeltas.reduce((a, b) => a + b, 0), 0);
   R.setMode('classic');
 });

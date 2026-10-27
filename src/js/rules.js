@@ -236,13 +236,21 @@
 
   /* ---------------- 牌型与分值 ---------------- */
   // 牌型取最高的一种，不叠加。清一色按「手牌 + 副露」整体同门判定。
+  const HU_BASE = 4;
+  const KONG_POINT = 4;
+  const RESPONSIBILITY_POINT = 3;
+  const CHI_PAO_MIN = 14;
   const PATTERN_POINTS = {
-    ping: 1, duizi: 5, qidui: 7, longqidui: 10,
-    qing: 10, qingduizi: 15, qingqidui: 17, qinglongqidui: 20
+    ping: HU_BASE, duizi: 10 + HU_BASE, qidui: 20 + HU_BASE, longqidui: 40 + HU_BASE,
+    shuanglongqidui: 60 + HU_BASE, sanlongqidui: 80 + HU_BASE,
+    qing: 20 + HU_BASE, qingduizi: 30 + HU_BASE, qingqidui: 40 + HU_BASE, qinglongqidui: 60 + HU_BASE,
+    qingshuanglongqidui: 80 + HU_BASE, qingsanlongqidui: 100 + HU_BASE
   };
   const PATTERN_NAMES = {
     ping: '平胡', duizi: '大对子', qidui: '七对', longqidui: '龙七对',
-    qing: '清一色', qingduizi: '清大对', qingqidui: '清七对', qinglongqidui: '清龙七对'
+    shuanglongqidui: '双龙七对', sanlongqidui: '三龙七对',
+    qing: '清一色', qingduizi: '清大对', qingqidui: '清七对', qinglongqidui: '清龙七对',
+    qingshuanglongqidui: '清双龙七对', qingsanlongqidui: '清三龙七对'
   };
 
   /** 不加财神的牌型判定（wild = 已按财神用的张数） */
@@ -251,9 +259,9 @@
     const sets = 4 - melds.length;
     const cands = [];
     if (melds.length === 0 && isSevenPairs(c, wild)) {
-      let quad = false;
-      for (let i = 0; i < 27; i++) if (c[i] >= 4) quad = true;
-      cands.push(quad ? 'longqidui' : 'qidui');
+      let quads = 0;
+      for (let i = 0; i < 27; i++) if (c[i] >= 4) quads++;
+      cands.push(['qidui', 'longqidui', 'shuanglongqidui', 'sanlongqidui'][Math.min(3, quads)]);
     }
     if (isWinShape(c, sets, wild)) {
       cands.push(allTripletsShape(c, sets, wild) ? 'duizi' : 'ping');
@@ -372,17 +380,21 @@
     return best ? best.tile : null;
   }
 
+  function canDeclareTing(player) {
+    return !!player && !player.tingDeclared && !(player.discardCount || player.discards?.length) && !player.melds?.length;
+  }
+
   /* ---------------- 吃炮通行证 ---------------- */
-  // 有豆（杠过）→ 平胡也能吃炮；没豆 → 只有 5 分及以上的牌型才能吃炮。
+  // 吃炮门槛按基础牌型分判断，不把报听、硬胡等附加分计入。
   function canChiPao(info) {
     if (!info) return false;
-    return info.kongs > 0 || info.points >= 5;
+    return info.points >= CHI_PAO_MIN;
   }
 
   /* ---------------- 鸡 ---------------- */
-  // 常鸡：幺鸡（一条）1 分/张，乌骨鸡（八筒）2 分/张；金鸡（翻牌鸡正好是常鸡）该牌种翻倍。
+  // 常鸡：幺鸡（一条）与乌骨鸡（八筒）均为 2 分/张；金鸡翻倍。
   const CHICKEN_BASE = {};
-  CHICKEN_BASE[YAOJI] = 1;
+  CHICKEN_BASE[YAOJI] = 2;
   CHICKEN_BASE[WUGU] = 2;
 
   /** 本局的鸡与分值：幺鸡、乌骨鸡、翻牌鸡（翻牌的下一张，撞上常鸡即为金鸡） */
@@ -430,12 +442,12 @@
   /* ---------------- 特殊牌型的加分 ---------------- */
   // 本作口径：都在牌型分之上一次性加分，不叠倍数
   const BONUS = {
-    tianhu: 20,    // 天胡：庄家第一摸就胡
-    dihu: 10,      // 地胡：闲家第一巡胡（下家第一摸自摸 / 胡庄家首张）
-    baoting: 3,    // 报听（硬报）后胡牌
-    tianting: 6,   // 天听：起手就听牌并报听（取代报听的 3 分）
-    qianggang: 5,  // 抢杠胡（另由杠家包三家）
-    repao: 1,      // 热炮：杠后打出的牌被胡
+    tianhu: 60,    // 天胡：庄家第一摸就胡
+    dihu: 30,      // 地胡：下家第一摸自摸 / 胡庄家首张
+    baoting: 20,   // 本人首次出牌前报听，胡牌加分
+    tianting: 40,  // 起手听牌并在本人首次出牌前报听，替代报听加分
+    qianggang: 20, // 抢杠胡，由补杠者向每位胡家付一份
+    repao: 20,     // 热炮：杠后打出的牌被胡
     hardHu: 5      // 冲幺筒模式：硬胡（一张替身都没用）
   };
 
@@ -448,9 +460,9 @@
     createWall, shuffle, counts, sortHand,
     canFormSets, isWinShape, isSevenPairs, allTripletsShape,
     winInfo, isWin, tenpaiTiles, tingValue, canChiPao,
-    seenCountsOf, bestTingOf,
+    seenCountsOf, bestTingOf, canDeclareTing,
     chickenSet, chickenRate, chickenPoints, CHICKEN_BASE,
-    PATTERN_POINTS, PATTERN_NAMES, BONUS, CHONG_POINTS,
+    HU_BASE, KONG_POINT, RESPONSIBILITY_POINT, CHI_PAO_MIN, PATTERN_POINTS, PATTERN_NAMES, BONUS, CHONG_POINTS,
     MODES, MODE_ORDER, resolveMode, setMode, currentMode, isWildTile
   };
 });

@@ -138,6 +138,9 @@ test('联机整局：两个真人 + 两机器人，提示、零和、一局接�
   assert.equal(ended, 1, '第一局应正常结束');
   assert.equal(game.scores.reduce((a, b) => a + b, 0), 0, '第一局四家分数零和');
 
+  for (const seat of room.seats) if (seat && !seat.bot && !room.isHost(seat.uid)) {
+    assert.equal(room.setReady(seat.uid, true, room.game.roundId, room.readyId).ok, true);
+  }
   const next = room.nextRound(room.hostUid);
   assert.equal(next.ok, true, `开下一局失败：${next.err || ''}`);
   const game2 = room.game;

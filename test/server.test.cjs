@@ -188,6 +188,8 @@ test('真实 WS：原房配置新桌继承累计分，移除机器人立即广�
   assert.equal(room.game, previous, '开桌校验失败保留上一桌结算');
   assert.deepEqual(room.game.scores, [12, -12, 0, 0]);
   host.send({ t: 'addbot' }); await host.wait('room', (m) => m.room.full);
+  guest.send({ t: 'ready', ready: true, roundId: room.game.roundId, readyId: room.readyId });
+  await host.wait('room', (m) => m.room.allReady);
   host.send({ t: 'newtable' });
   for (const c of [host, guest]) {
     const opening = (await c.wait('snapshot', (m) => m.snap.roundId !== previous.roundId && m.snap.phase === 'dealing')).snap;
@@ -241,6 +243,9 @@ test('跨桌累计分：断线恢复、会话过期及普通玩家退房保留�
     } else if (scenario === 'guest-leave') room.remove(guest.uid, true);
     else room.remove(host.uid, true);
     assert.equal(room.resetScoresOnNewTable, scenario === 'host-leave', scenario);
+    for (const seat of room.seats) if (seat && !seat.bot && !room.isHost(seat.uid)) {
+      assert.equal(room.setReady(seat.uid, true, room.game.roundId, room.readyId).ok, true);
+    }
     assert.equal(room.newTable(room.hostUid).ok, true, scenario);
     assert.deepEqual(room.game.scores, scenario === 'host-leave' ? [0, 0, 0, 0] : [12, -7, -3, -2], scenario);
   }

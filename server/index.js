@@ -92,6 +92,7 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
       const room = previous.room;
       room.reconnect(previous);
       send(ws, { t: 'joined', resumed: true, room: room.publicState(previous.uid) });
+      room.sendChatHistory(previous.uid);
       room.broadcastRoom(); room.broadcastGame();
     }
     return previous;
@@ -116,7 +117,8 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
         if (msg.config !== undefined) check(room.setConfig(me.uid, msg.config, false));
         leaveRoom(me, true);
         rooms.set(room.id, room); me.room = room;
-        send(me.ws, { t: 'joined', room: room.publicState(me.uid) }); return;
+        send(me.ws, { t: 'joined', room: room.publicState(me.uid) });
+        room.sendChatHistory(me.uid); return;
       }
       case 'join': {
         const code = String(msg.room || '').trim();
@@ -127,6 +129,7 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
           leaveRoom(me, true); me.room = room;
         }
         send(me.ws, { t: 'joined', room: room.publicState(me.uid) });
+        room.sendChatHistory(me.uid);
         room.broadcastRoom();
         if (room.game) room.sendSnapshotTo(room.seatOf(me.uid));
         return;
@@ -149,11 +152,20 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
       }
       case 'next': check(requireRoom().nextRound(me.uid)); return;
       case 'newtable': check(requireRoom().newTable(me.uid)); return;
+      case 'ready': check(requireRoom().setReady(me.uid, msg.ready, msg.roundId, msg.readyId)); return;
+      case 'chat': {
+        const room = requireRoom();
+        const result = room.chat(me.uid, msg.text, msg.clientId);
+        if (!result.ok) send(me.ws, { t: 'chat-error', roomId: room.id, err: result.err,
+          clientId: typeof msg.clientId === 'string' ? msg.clientId.slice(0, 64) : undefined });
+        return;
+      }
       case 'leave': leaveRoom(me, true); send(me.ws, { t: 'left' }); return;
       case 'action': check(requireRoom().action(me.uid, msg.action)); return;
       case 'sync': {
         const room = requireRoom();
         send(me.ws, { t: 'room', room: room.publicState(me.uid) });
+        room.sendChatHistory(me.uid);
         if (room.game) room.sendSnapshotTo(room.seatOf(me.uid));
         return;
       }

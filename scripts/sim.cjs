@@ -1,5 +1,5 @@
 /* 压力测试：多局随机对局，检查异常与零和
- * 用法：node scripts/sim.cjs [--mode=classic|yitong] [--rounds=200]
+ * 用法：node scripts/sim.cjs [--mode=classic|yitong] [--difficulty=easy|normal|hard] [--rounds=200]
  */
 const { Game } = require('../src/js/game.js');
 const AI = require('../src/js/ai.js');
@@ -11,17 +11,18 @@ const arg = (name, def) => {
 };
 
 const modeId = arg('mode', 'classic');
+const aiDifficulty = AI.difficultyOf(arg('difficulty', 'normal'));
 const totalRounds = parseInt(arg('rounds', '200'), 10);
 const MODE = R.resolveMode(modeId);
 
 const stats = {
-  mode: MODE.id, rounds: 0, errors: 0, hu: 0, draw: 0, multi: 0, robKong: 0,
+  mode: MODE.id, aiDifficulty, rounds: 0, errors: 0, hu: 0, draw: 0, multi: 0, robKong: 0,
   repao: 0, tianhu: 0, dihu: 0, baoting: 0, ting: 0, tianTing: 0,
   chong: 0, hard: 0, soft: 0, huPoints: 0
 };
 
 (async () => {
-  const g = new Game({ speed: 90, dealer: 0, mode: MODE.id });
+  const g = new Game({ speed: 90, dealer: 0, mode: MODE.id, aiDifficulty });
   g.on('error', (e) => { stats.errors++; console.error('ERR', e); });
   g.on('ting', (i) => { stats.ting++; if (i.tianTing) stats.tianTing++; });
   g.on('chong', () => { stats.chong++; });

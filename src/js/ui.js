@@ -3,6 +3,7 @@
   'use strict';
 
   const R = window.GZRules;
+  const AI = window.GZAI;
   const T = window.GZTiles;
   const GZ = window.GZGame;
   const $ = (s) => document.querySelector(s);
@@ -96,16 +97,13 @@
 
   /* ---------------- 出牌速度 ---------------- */
 
-  const SPEEDS = [
-    { label: '慢', value: 0.42 },
-    { label: '中', value: 0.7 },
-    { label: '快', value: 1.3 }
-  ];
+  const SPEEDS = Object.entries(AI.BOT_SPEEDS).map(([id, speed]) => ({ id, ...speed }));
   let speedIdx = 0;
+  let aiDifficulty = 'normal';
 
   function applySpeed() {
-    if (game) game.speed = SPEEDS[speedIdx].value;
-    el.speedBtn.textContent = `速度 ${SPEEDS[speedIdx].label}`;
+    if (game && !game.isRemote) { game.speed = SPEEDS[speedIdx].value; game.botSpeed = SPEEDS[speedIdx].id; }
+    refreshControls();
     try { localStorage.setItem('gz-speed', String(speedIdx)); } catch (e) { /* ignore */ }
   }
 
@@ -117,6 +115,17 @@
     if (game && !game.isRemote) game.setAuto(autoOn);
     refreshControls();
     try { localStorage.setItem('gz-bot-play', autoOn ? '1' : '0'); } catch (e) { /* ignore */ }
+  }
+
+  function applyDifficulty() {
+    if (game && !game.isRemote) game.aiDifficulty = aiDifficulty;
+    try { localStorage.setItem('gz-ai-difficulty', aiDifficulty); } catch { /* ignore */ }
+    refreshControls();
+  }
+
+  function practiceSettings(cfg) {
+    if (cfg.aiDifficulty !== undefined) { aiDifficulty = AI.difficultyOf(cfg.aiDifficulty); applyDifficulty(); }
+    if (cfg.botSpeed !== undefined) { speedIdx = SPEEDS.findIndex((s) => s.id === AI.speedOf(cfg.botSpeed)); applySpeed(); }
   }
 
   function toggleAuto() {
@@ -132,6 +141,12 @@
   }
 
   function refreshControls() {
+    const room = window.GZOnline?.room;
+    const speedId = game?.isRemote ? room?.config.botSpeed || game.botSpeed : SPEEDS[speedIdx].id;
+    el.speedBtn.textContent = `速度 ${AI.BOT_SPEEDS[AI.speedOf(speedId)].label}`;
+    el.speedBtn.disabled = !!game?.isRemote && (!room?.host || window.GZNet.status() !== 'open');
+    el.speedBtn.title = game?.isRemote ? room?.host ? '调整本房间人机速度，立即生效' : '由房主调整人机速度' : '电脑出牌速度';
+    $('#btn-difficulty').textContent = `难度 ${AI.DIFFICULTIES[aiDifficulty].label}`;
     const enabled = !!(game && game.autoPlay);
     el.autoBtn.textContent = `人机代打 ${enabled ? '开' : '关'}`;
     el.autoBtn.classList.toggle('on', enabled);
@@ -602,6 +617,7 @@
         <tbody>${rows}</tbody>
       </table>
       <div class="panel-actions">
+        <p class="round-ready-status" data-ready-status role="status" aria-live="polite"></p>
         <button class="btn-ghost" data-act="close">看看牌桌</button>
         <button class="btn-ghost" data-act="lobby">回大厅</button>
         <button class="btn-primary" data-act="next">再来一局</button>
@@ -642,6 +658,7 @@
         <tbody>${rows}</tbody>
       </table>
       <div class="panel-actions">
+        <p class="round-ready-status" data-ready-status role="status" aria-live="polite"></p>
         <button class="btn-ghost" data-act="close">看看牌桌</button>
         <button class="btn-ghost" data-act="lobby">回大厅</button>
         <button class="btn-primary" data-act="next">再来一局</button>
@@ -666,12 +683,23 @@
       const room = window.GZOnline.room;
       if (room) {
         const finished = room.finished ?? (game.phase === 'ended' && game.roundNo >= room.totalRounds);
-        const canNext = !finished && room.host && game.phase === 'ended';
+        const ready = window.GZOnline.readyInfo();
+        const ended = game.phase === 'ended' && !room.running;
+        const connected = window.GZNet.status() === 'open';
+        const canNext = !finished && room.host && ended && ready.all && connected;
         topNext.disabled = !canNext;
-        topNext.title = finished ? '本桌已结束，返回房间可配置新桌' : !room.host ? '等待房主开下一局' : game.phase !== 'ended' ? '本局结束后可开始下一局' : '开始下一局';
+        topNext.title = finished ? '本桌已结束，返回房间可配置新桌' : !room.host ? '请在结算界面准备，等待房主开局' : !ended ? '本局结束后可开始下一局' : !ready.all ? '等待所有非房主玩家准备' : '开始下一局';
         if (next) {
-          next.disabled = !canNext;
-          next.textContent = finished ? '本桌已结束' : room.host ? '开始下一局' : '等待房主开局';
+          next.disabled = room.host ? !canNext : !ended || !connected;
+          next.textContent = room.host ? (finished ? '本桌已结束' : ready.all ? '开始下一局' : '等待玩家准备')
+            : ready.mine ? '已准备（取消）' : finished ? '准备下一桌' : '准备';
+        }
+        const status = el.overlay.querySelector('[data-ready-status]');
+        if (status) {
+          status.textContent = !ended ? '' : !room.full ? '房间尚有空位，请先补齐座位。'
+            : room.seats.some((s) => s.offline) ? '等待掉线玩家恢复连接。'
+              : ready.all ? (finished ? '全员已准备，返回房间可开启新的一桌。' : '全员已准备，等待房主开下一局。')
+                : `等待 ${ready.waiting.join('、') || '玩家'} 准备；机器人自动就绪。`;
         }
       } else {
         topNext.disabled = true;
@@ -685,10 +713,15 @@
     if (!game) return;
     if (game.isRemote) {
       const room = window.GZOnline.room;
-      if (!room || !room.host) { toast('等房主开下一局'); return; }
+      if (!room) return;
       if (game.phase !== 'ended') { toast('本局结束后可开始下一局'); return; }
+      if (!room.host) {
+        if (!window.GZOnline.toggleReady()) toast('连接恢复后可准备');
+        return;
+      }
       if (room.finished ?? (game.roundNo >= room.totalRounds)) { toast('返回房间可配置并开启新桌'); return; }
-      window.GZNet.send({ t: 'next' });
+      if (!window.GZOnline.readyInfo().all) { toast('请等待所有非房主玩家准备'); return; }
+      if (!window.GZNet.send({ t: 'next' })) toast('连接恢复后可开下一局');
       return;
     }
     const modeId = game.mode.id;
@@ -707,22 +740,32 @@
 
   /* ---------------- 规则 ---------------- */
 
+  const PATTERN_RULES = (() => {
+    const patterns = Object.entries(R.PATTERN_POINTS);
+    const rows = [];
+    for (let i = 0; i < patterns.length; i += 4) rows.push(`<li>${patterns.slice(i, i + 4).map(([id, points]) => `${R.PATTERN_NAMES[id]} <span class="hl">${points}</span>`).join('　')}</li>`);
+    return rows.join('');
+  })();
+
   const RULES_COMMON = `
+    <h3>吃炮门槛</h3>
+    <p>普通吃炮要求基础牌型分至少 ${R.CHI_PAO_MIN} 分；杠牌、报听及硬胡加分不改变此门槛。抢杠胡不受此限。</p>
+
     <h3>豆（杠）</h3>
     <ul>
-      <li>每个豆 3 分：暗杠、补杠由其他三家各付 3；明杠只由放杠那家付 3</li>
+      <li>每个豆 ${R.KONG_POINT} 分：暗杠、补杠由其他三家各付 ${R.KONG_POINT}；明杠只由放杠那家付 ${R.KONG_POINT}</li>
       <li>豆分当场结算，直接计入总分</li>
     </ul>
 
     <h3>抢杠胡 / 热炮 / 一炮多响</h3>
     <ul>
-      <li><span class="hl">抢杠胡</span>：别人补杠的那张牌正好是你听的牌 → 你可以抢杠，杠不成立，杠家包三家。</li>
-      <li><span class="hl">热炮</span>：杠完后打出的第一张牌被别人胡，胡牌分 +1。</li>
+      <li><span class="hl">抢杠胡</span>：别人补杠的那张牌正好是你听的牌，可以抢杠；杠不成立，由补杠者向每位胡家付一份胡牌分。</li>
+      <li><span class="hl">热炮</span>：杠完后打出的第一张牌被别人胡，胡牌分 +${R.BONUS.repao}。</li>
       <li><span class="hl">一炮多响</span>：一张牌同时被两家以上胡，所有人都算胡，点炮者各赔一份。</li>
     </ul>
 
     <h3>报听 / 天听</h3>
-    <p>轮到你出牌且手牌听牌时，可以点「<span class="hl">报听</span>」：系统替你打出那张保持听牌的牌，之后手牌锁定——不能再碰、不能杠，摸什么打什么，见胡就胡。起手 13 张就听牌、并且在第一巡报听，算<span class="hl">天听</span>（+6）。</p>
+    <p>只能在本人首次出牌前、无副露且可以打牌听牌时点「<span class="hl">报听</span>」（+${R.BONUS.baoting}）：系统替你打出保持听牌的牌，之后手牌锁定，不能碰杠，摸什么打什么，见胡就胡。起手13张就听牌并报听算<span class="hl">天听</span>（+${R.BONUS.tianting}），替代报听加分。</p>
 
     <h3>黄庄</h3>
     <p>牌墙摸完按查叫结算：未叫的人赔给每个叫牌者「其叫牌牌型的分值」。</p>
@@ -736,30 +779,27 @@
 
     <h3>牌型与分值（取最高的一种，不叠加）</h3>
     <ul>
-      <li>平胡 <span class="hl">1</span>　大对子 <span class="hl">5</span>　七对 <span class="hl">7</span>　龙七对 <span class="hl">10</span></li>
-      <li>清一色 <span class="hl">10</span>　清大对 <span class="hl">15</span>　清七对 <span class="hl">17</span>　清龙七对 <span class="hl">20</span></li>
+      ${PATTERN_RULES}
+      <li>上述分值已包含 ${R.HU_BASE} 分胡牌底分；七对按实牌中的四张同牌组数区分龙、双龙、三龙</li>
       <li>自摸 <span class="hl">+1</span>，杠上花 <span class="hl">+1</span>；清一色按「手牌 + 副露」整体同门判定</li>
     </ul>
 
     <h3>特殊牌型加分（在牌型分之上相加）</h3>
     <ul>
-      <li>天胡 <span class="hl">+20</span>：庄家配牌后第一摸就自摸</li>
-      <li>地胡 <span class="hl">+10</span>：闲家第一巡就胡（下家第一摸自摸，或胡庄家打出的第一张）</li>
-      <li>报听 <span class="hl">+3</span>、天听 <span class="hl">+6</span>：主动报听 / 起手就听牌并报听</li>
-      <li>抢杠胡 <span class="hl">+5</span>，另由杠家包三家（赔三份）</li>
-      <li>热炮 <span class="hl">+1</span>：杠后打出的那张牌被别人胡</li>
+      <li>天胡 <span class="hl">+${R.BONUS.tianhu}</span>：庄家配牌后第一摸就自摸</li>
+      <li>地胡 <span class="hl">+${R.BONUS.dihu}</span>：下家第一摸自摸，或单独胡庄家打出的第一张</li>
+      <li>报听 <span class="hl">+${R.BONUS.baoting}</span>、天听 <span class="hl">+${R.BONUS.tianting}</span>：本人首次出牌前声明，天听替代报听加分</li>
+      <li>抢杠胡 <span class="hl">+${R.BONUS.qianggang}</span>，补杠者向每位胡家付一份</li>
+      <li>热炮 <span class="hl">+${R.BONUS.repao}</span>：杠后打出的那张牌被别人胡</li>
     </ul>
-
-    <h3>吃炮通行证</h3>
-    <p>有豆（杠过）→ 平胡也能吃炮；没有豆 → 只有 5 分以上的牌型才能吃炮，平胡只能自摸。抢杠胡不受此限。</p>
 
     <h3>鸡</h3>
     <ul>
-      <li>幺鸡（一条）1 分/张，乌骨鸡（八筒）2 分/张，整局都算</li>
+      <li>幺鸡（一条）${R.CHICKEN_BASE[R.YAOJI]} 分/张，乌骨鸡（八筒）${R.CHICKEN_BASE[R.WUGU]} 分/张，整局都算</li>
       <li>翻牌鸡：胡牌后翻牌墙第 1 张，翻到牌的下一张为鸡（翻 5 万 → 6 万；翻 9 条 → 幺鸡），1 分/张</li>
-      <li><span class="hl">金鸡</span>：翻牌鸡正好是幺鸡 / 乌骨鸡时，该牌种翻倍（幺鸡 2 分、八筒 4 分）</li>
+      <li><span class="hl">金鸡</span>：翻牌鸡正好是幺鸡 / 乌骨鸡时，该牌种翻倍（幺鸡 ${R.CHICKEN_BASE[R.YAOJI] * 2} 分、八筒 ${R.CHICKEN_BASE[R.WUGU] * 2} 分）</li>
       <li><span class="hl">冲锋鸡</span>：本局第一张被打出的幺鸡 / 八筒，计双倍</li>
-      <li><span class="hl">责任鸡</span>：冲锋鸡被别人碰 / 杠走 → 打牌的人赔一个豆（3 分）给拿走的人，这张不再翻倍</li>
+      <li><span class="hl">责任鸡</span>：冲锋鸡被别人碰 / 杠走，打牌的人向拿牌者付 ${R.RESPONSIBILITY_POINT} 分，这张不再翻倍</li>
       <li><span class="hl">包鸡</span>：胡牌时没叫牌的人，自己手里的鸡反过来赔给胡牌的人</li>
       <li>叫牌（听牌）的人按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份</li>
     </ul>
@@ -787,10 +827,10 @@
 
     <h3>牌型与分值（与经典一致，取最高的一种）</h3>
     <ul>
-      <li>平胡 <span class="hl">1</span>　大对子 <span class="hl">5</span>　七对 <span class="hl">7</span>　龙七对 <span class="hl">10</span></li>
-      <li>清一色 <span class="hl">10</span>　清大对 <span class="hl">15</span>　清七对 <span class="hl">17</span>　清龙七对 <span class="hl">20</span></li>
+      ${PATTERN_RULES}
+      <li>上述分值已包含 ${R.HU_BASE} 分胡牌底分</li>
       <li>自摸 <span class="hl">+1</span>，杠上花 <span class="hl">+1</span>，硬胡 <span class="hl">+5</span></li>
-      <li>天胡 <span class="hl">+20</span>　地胡 <span class="hl">+10</span>　报听 <span class="hl">+3</span>　天听 <span class="hl">+6</span>　抢杠胡 <span class="hl">+5</span>　热炮 <span class="hl">+1</span></li>
+      <li>天胡 <span class="hl">+${R.BONUS.tianhu}</span>　地胡 <span class="hl">+${R.BONUS.dihu}</span>　报听 <span class="hl">+${R.BONUS.baoting}</span>　天听 <span class="hl">+${R.BONUS.tianting}</span>　抢杠胡 <span class="hl">+${R.BONUS.qianggang}</span>　热炮 <span class="hl">+${R.BONUS.repao}</span></li>
     </ul>
 
     <h3>本模式没有鸡</h3>
@@ -807,7 +847,7 @@
       <h2>玩法规则</h2>
       <div class="rules-tabs">${tabs}</div>
       ${RULES_BODY[id]}
-      <p class="note">规则口径参考公开的贵阳捉鸡 / 遵义幺筒麻将资料；加分与赔率是为单机对局定的固定值，可在规则里随时改。</p>
+      <p class="note">本地练习与联机共用本页计分规则。</p>
       <div class="panel-actions"><button class="btn-primary" data-act="close-rules">知道了</button></div>
     </div>`;
   }
@@ -883,8 +923,21 @@
     el.stage.addEventListener('mouseleave', () => { if (tipTile !== null) hideTip(); });
 
     el.speedBtn.addEventListener('click', () => {
+      if (game?.isRemote) {
+        const room = window.GZOnline.room;
+        if (!room?.host) return;
+        const index = SPEEDS.findIndex((s) => s.id === (room.config.botSpeed || 'normal'));
+        if (!window.GZNet.send({ t: 'config', config: { botSpeed: SPEEDS[(index + 1) % SPEEDS.length].id } })) toast('连接恢复后可调整速度');
+        return;
+      }
       speedIdx = (speedIdx + 1) % SPEEDS.length;
       applySpeed();
+    });
+    $('#btn-difficulty').addEventListener('click', () => {
+      if (!game || game.isRemote) return;
+      const levels = Object.keys(AI.DIFFICULTIES);
+      aiDifficulty = levels[(levels.indexOf(aiDifficulty) + 1) % levels.length];
+      applyDifficulty();
     });
 
     el.autoBtn.addEventListener('click', toggleAuto);
@@ -951,6 +1004,7 @@
     document.body.classList.toggle('in-lobby', name === 'lobby');
     document.body.classList.toggle('in-online', name === 'online');
     document.body.classList.toggle('in-game', name === 'game');
+    window.GZChat.setView(name, !!game?.isRemote);
     if (name === 'game') window.GZViewport.enter();
     else window.GZViewport.leave();
     fit();
@@ -1028,7 +1082,7 @@
       playFx(msg.fx || []);
       return;
     }
-    if (msg.t === 'room') refreshRoundActions();
+    if (msg.t === 'room') refreshControls();
   }
 
   /** 回放这轮快照里的动效 */
@@ -1046,11 +1100,11 @@
         toast(`冲幺筒：向其他三家各收 ${f.points} 分`, 2400);
       } else if (f.type === 'ting') {
         Sound.tone(1046, 0.18, 'sine', 0.1);
-        toast(f.tianTing ? '天听！起手就听牌，胡牌 +6' : '已报听：手牌锁定，摸什么打什么', 2600);
+        toast(f.tianTing ? `天听！起手就听牌，胡牌 +${R.BONUS.tianting}` : `已报听：手牌锁定，胡牌 +${R.BONUS.baoting}`, 2600);
       } else if (f.type === 'blocked') {
         if (!blockedShown) {
           blockedShown = true;
-          toast('平胡没有豆，不能吃炮，只能自摸');
+          toast('当前牌型未满足吃炮门槛，可继续摸牌或自摸');
         }
       } else if (f.type === 'msg') {
         if (f.text) toast(f.text, 2000);
@@ -1062,8 +1116,8 @@
     const id = R.MODES[modeId] ? modeId : 'classic';
     GZLobby.hide();
     GZOnline.hide();
-    setView('game');
     if (game && !game.isRemote && game.mode.id === id) {
+      setView('game');
       // 同一玩法再进来：接着上桌，不重发牌
       if (el.brandSub) el.brandSub.textContent = `${game.mode.name} · 单机版`;
       render();
@@ -1071,6 +1125,7 @@
       return;
     }
     createGame(id);
+    setView('game');
     if (el.brandSub) el.brandSub.textContent = `${game.mode.name} · 单机版`;
     toast(`进入「${game.mode.name}」· 第 ${game.roundNo} 局`, 2200);
   }
@@ -1085,6 +1140,8 @@
     game = new GZ.Game({
       mode: modeId,
       speed: SPEEDS[speedIdx].value,
+      botSpeed: SPEEDS[speedIdx].id,
+      aiDifficulty,
       autoPlay: autoOn,
       scores: saved ? saved.scores : undefined,
       roundNo: saved ? saved.round : undefined,
@@ -1120,11 +1177,11 @@
     on('blocked', () => {
       if (blockedShown) return;
       blockedShown = true;
-      toast('平胡没有豆，不能吃炮，只能自摸');
+      toast('当前牌型未满足吃炮门槛，可继续摸牌或自摸');
     });
     on('ting', (info) => {
       Sound.tone(1046, 0.18, 'sine', 0.1);
-      toast(info.tianTing ? '天听！起手就听牌，胡牌 +6' : '已报听：手牌锁定，摸什么打什么', 2600);
+      toast(info.tianTing ? `天听！起手就听牌，胡牌 +${R.BONUS.tianting}` : `已报听：手牌锁定，胡牌 +${R.BONUS.baoting}`, 2600);
     });
     g.on('roundEnd', (res) => {
       if (game !== g) return;
@@ -1164,16 +1221,20 @@
     fit();
     window.addEventListener('resize', fit);
     window.visualViewport?.addEventListener('resize', fit);
+    window.visualViewport?.addEventListener('scroll', fit);
     document.addEventListener('fullscreenchange', fit);
 
     try {
       const saved = parseInt(localStorage.getItem('gz-speed'), 10);
       if (saved >= 0 && saved < SPEEDS.length) speedIdx = saved;
       autoOn = localStorage.getItem('gz-bot-play') === '1';
+      aiDifficulty = AI.difficultyOf(localStorage.getItem('gz-ai-difficulty'));
     } catch (e) { /* ignore */ }
 
     GZOnline.init({ onError: toast, onEnterGame: enterOnlineGame });
-    GZLobby.init({ onEnter: enterMode, onRules: showRules, onRender: fit, onOnline: showOnline });
+    window.GZChat.init();
+    GZLobby.init({ onEnter: enterMode, onRules: showRules, onRender: fit, onOnline: showOnline,
+      getPracticeSettings: () => ({ aiDifficulty, botSpeed: SPEEDS[speedIdx].id }), onPracticeSettings: practiceSettings });
     window.__ui = { enterMode, showLobby, showOnline, showOnlineRoom, showRules, showResult, hideResult, fit };
     window.GZUI = window.__ui;   // 供 online.js / lobby.js 回调返回大厅、联机面板
 
@@ -1185,6 +1246,7 @@
       banner.classList.toggle('hidden', !disconnected);
       document.body.classList.toggle('net-offline', disconnected);
       banner.textContent = game && game.isRemote ? '连接中断，正在重连 · 座位保留 60 秒，电脑临时代打' : '正在连接服务器…';
+      refreshControls();
       fit();
     });
 

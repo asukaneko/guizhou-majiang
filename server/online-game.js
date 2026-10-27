@@ -226,7 +226,7 @@ class OnlineGame extends Game {
         return { ok: true };
       }
       if (action.type === 'ting') {
-        if (pl.tingDeclared) return { ok: false, err: '已经报听了' };
+        if (!R.canDeclareTing(pl)) return { ok: false, err: '只能在本人首次出牌前且无副露时报听' };
         const tile = this.bestTingDiscard(p);
         if (tile == null) return { ok: false, err: '还没听牌，不能报听' };
         pl.tingDeclared = true;

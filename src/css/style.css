@@ -1591,13 +1591,92 @@ button:focus-visible, [role="button"]:focus-visible, summary:focus-visible { out
 .mc-rules, .pf-mini, .pf-ghost { min-height: 32px; }
 #net-status { flex: 0 0 auto; padding: 6px 12px; background: #543b14; color: #ffe3a0; font-size: 12px; text-align: center; }
 body.net-offline.is-remote #actions, body.net-offline.is-remote .hand-main { pointer-events: none; opacity: .65; }
-body.is-remote #btn-speed, body.is-remote #btn-reset-scores { display: none; }
+body.is-remote #btn-difficulty, body.is-remote #btn-reset-scores { display: none; }
 #overlay { position: absolute; inset: 48px 0 0; padding: 12px; }
 #overlay .panel { width: min(760px, 100%); max-height: 100%; padding: 20px; }
 .panel-actions { position: sticky; bottom: -20px; background: #0c1d15; padding: 12px 0; margin-bottom: -16px; flex-wrap: wrap; }
+.round-ready-status { flex: 1 0 100%; margin: 0 0 4px; color: #b9cfc2; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.round-ready-status:empty { display: none; }
+.ol-seat-tag.ready { color: #b5edca; border-color: #52785d; }
 #toast { position: absolute; left: 50%; top: 64px; bottom: auto; max-width: min(92%, 640px); width: max-content; transform: translateX(-50%); z-index: 80; pointer-events: none; }
 .toast-item { white-space: normal; line-height: 1.5; border-radius: 10px; }
 .mobile-hand-count { display: none; }
+.practice-settings { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 14px 16px; border: 1px solid #31483b; border-radius: 10px; background: #10231a; }
+.practice-settings strong { font-size: 14px; color: var(--paper); }
+.practice-settings label { flex: 1 1 180px; display: flex; align-items: center; gap: 8px; font-size: 13px; color: #b9cfc2; }
+.practice-settings select { min-width: 0; flex: 1; min-height: 44px; padding: 6px 8px; border: 1px solid #668772; border-radius: 6px; background: #09180f; color: #e8f2ec; font: inherit; font-size: 14px; }
+.practice-settings select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.ol-config .ol-field { flex: 1 1 150px; }
+
+/* 聊天面板独立于缩放牌桌，切换房间等待页和牌桌时保留输入与记录。 */
+#btn-chat { display: inline-flex; align-items: center; gap: 5px; }
+body.chat-open #app { position: fixed; top: var(--viewport-top, 0px); left: 0; }
+#chat-unread { min-width: 17px; padding: 1px 4px; border-radius: 8px; background: var(--gold); color: var(--ink); font-size: 10px; }
+#room-chat {
+  position: absolute; z-index: 70; top: 58px; right: 12px; bottom: 12px;
+  width: min(360px, calc(100% - 24px)); max-height: 620px;
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  border: 1px solid #496454; border-radius: 12px; background: #10231a;
+  box-shadow: 0 8px 28px #0006; color: #e8f2ec;
+}
+body.chat-docked #room-chat { top: 56px; right: 8px; bottom: 8px; width: 300px; max-height: none; box-shadow: none; }
+body.chat-docked #stage-wrap { margin-right: 316px; }
+body.chat-docked #chat-close { display: none; }
+@media (min-width: 1440px) {
+  body.chat-docked #room-chat { width: 340px; }
+  body.chat-docked #stage-wrap { margin-right: 356px; }
+}
+.chat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid #31483b; flex-shrink: 0; }
+.chat-head h2 { margin: 0 0 3px; font-size: 16px; color: var(--paper); }
+#chat-room { color: #b0c6b8; font-size: 11px; }
+#room-chat button { font: inherit; cursor: pointer; touch-action: manipulation; }
+#chat-close { min-width: 44px; min-height: 44px; padding: 6px 8px; border: 0; border-radius: 6px; color: #d3e4d9; background: #253e30; font-size: 12px; }
+#chat-messages { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px; scrollbar-width: thin; user-select: text; }
+#chat-latest { align-self: center; flex-shrink: 0; min-height: 36px; padding: 5px 12px; border: 1px solid #668772; border-radius: 6px; background: #253e30; color: #f1f6f2; font-size: 12px; }
+.chat-empty { margin: 20px 0; text-align: center; color: #b0c6b8; font-size: 13px; }
+.chat-message { width: fit-content; max-width: 92%; margin-bottom: 12px; }
+.chat-message.mine { margin-left: auto; }
+.chat-meta { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; font-size: 11px; color: #b0c6b8; margin-bottom: 4px; overflow-wrap: anywhere; }
+.chat-meta time { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.chat-message p { margin: 0; padding: 8px 10px; border-radius: 7px; background: #253e30; color: #f1f6f2; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.chat-message.mine p { background: #345a43; }
+#chat-quick { display: flex; gap: 6px; padding: 6px 10px; flex-shrink: 0; overflow-x: auto; }
+#chat-quick button { flex: 0 0 auto; min-height: 36px; padding: 5px 9px; border: 1px solid #486351; border-radius: 6px; color: #d3e4d9; background: #1a3023; font-size: 12px; }
+#chat-status { min-height: 18px; flex-shrink: 0; margin: 0; padding: 2px 12px 6px; color: #b0c6b8; font-size: 11px; }
+#chat-status.error { color: #ffc0a8; }
+#chat-form { display: flex; gap: 8px; flex-shrink: 0; padding: 8px 10px; border-top: 1px solid #31483b; }
+.chat-input-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#chat-input { flex: 1; min-width: 0; min-height: 44px; padding: 8px 10px; border: 1px solid #668772; border-radius: 7px; background: #09180f; color: #f1f6f2; font: inherit; font-size: 16px; user-select: text; }
+#chat-input::placeholder { color: #a5bbac; font-size: 13px; }
+#chat-input:focus-visible, #chat-messages:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+#chat-send { min-height: 44px; padding: 8px 12px; border: 1px solid var(--gold); border-radius: 7px; color: var(--ink); background: var(--gold); font-size: 14px; }
+#room-chat button:hover:enabled { filter: brightness(1.12); }
+body.chat-typing #chat-quick { display: none; }
+body.chat-short #chat-status { display: none; }
+body.mobile-table.in-game #room-chat { top: 44px; right: 6px; bottom: 6px; width: min(360px, 55%); max-height: none; }
+body.mobile-table.in-game .chat-head { padding: 4px 10px; }
+body.mobile-table.in-game .chat-head h2 { font-size: 14px; }
+body.mobile-table.in-game #chat-room { display: none; }
+body.mobile-table.in-game #chat-messages { padding: 8px 10px; }
+body.mobile-table.in-game .chat-message { margin-bottom: 8px; }
+body.mobile-table.in-game #chat-quick { padding: 3px 10px; }
+body.mobile-table.in-game #chat-form { padding: 5px 8px; }
+body.mobile-table.in-game.chat-typing:not(.chat-portrait) #room-chat { top: 0; right: 0; bottom: 0; width: min(420px, 100%); padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); }
+body.chat-portrait #room-chat, body.chat-portrait.in-game #room-chat { inset: 0; width: auto; max-height: none; border-radius: 0; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+body.chat-portrait #chat-room, body.chat-portrait.in-game #chat-room { display: inline; }
+@media (max-width: 680px) {
+  .practice-settings strong { width: 100%; }
+  .practice-settings label { flex-basis: 100%; }
+  .practice-settings select { font-size: 16px; }
+  body.in-online #titlebar .brand { display: none; }
+  body.in-online #titlebar .tb-actions { width: 100%; justify-content: space-between; }
+  #room-chat { top: 56px; right: 6px; bottom: 6px; width: calc(100% - 12px); max-height: none; }
+}
+@media (max-height: 300px) {
+  #room-chat .chat-head { padding: 2px 8px; }
+  #room-chat #chat-room, #room-chat #chat-quick { display: none; }
+  #room-chat #chat-status { padding-bottom: 2px; }
+}
 
 @media (max-width: 1000px) {
   .lb-wrap { gap: 16px; }
@@ -1651,7 +1730,7 @@ body.mobile-table.in-game .tb-actions { width: 100%; min-width: 0; gap: 6px; jus
 body.mobile-table.in-game .tb-actions > button { flex: 0 0 auto; white-space: nowrap; }
 body.mobile-table.in-game .brand-text span { display: none; }
 body.mobile-table.in-game .tb-btn { height: 34px; padding: 0 10px; }
-body.mobile-table.in-game #btn-speed, body.mobile-table.in-game #btn-reset-scores { display: none; }
+body.mobile-table.in-game #btn-reset-scores { display: none; }
 body.mobile-table.in-game #stage-wrap { display: block; padding: 0; }
 body.mobile-table.in-game #stage { width: 100%; height: 100%; transform: none; container-type: size; }
 body.mobile-table.in-game #felt { border-radius: 0; }

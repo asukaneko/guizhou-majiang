@@ -24,6 +24,8 @@
       this.lastDiscard = null;
       this.result = null;
       this.autoPlay = false;
+      this.aiDifficulty = 'normal';
+      this.botSpeed = 'normal';
       this.totalRounds = 0;
       this.roundIndex = 0;   // 已打完的局数
       this.resultKey = null;
@@ -43,6 +45,8 @@
     applySnapshot(snap) {
       this.state = snap;
       this.mode = R.MODES[snap.mode] || R.MODES.classic;
+      this.aiDifficulty = snap.aiDifficulty || 'normal';
+      this.botSpeed = snap.botSpeed || 'normal';
       this.phase = snap.phase;
       this.roundNo = snap.roundNo;
       this.dealer = snap.dealer;
@@ -97,7 +101,7 @@
 
     canTing(p) {
       const pl = this.players[p];
-      return !!pl && !pl.tingDeclared && this.bestTingDiscard(p) != null;
+      return R.canDeclareTing(pl) && this.bestTingDiscard(p) != null;
     }
 
     autoDecision(p, self) {

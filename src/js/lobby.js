@@ -3,6 +3,7 @@
   'use strict';
 
   const R = root.GZRules;
+  const AI = root.GZAI;
   const T = root.GZTiles;
   const P = root.GZProfile;
   const $ = (s) => document.querySelector(s);
@@ -229,6 +230,13 @@
 
   /* ---------------- 渲染 ---------------- */
 
+  function practiceSettingsHtml() {
+    const settings = hooks.getPracticeSettings?.() || { aiDifficulty: 'normal', botSpeed: 'normal' };
+    return `<section class="practice-settings" aria-label="本地练习设置"><strong>本地练习</strong>
+      <label>人机难度<select id="local-ai-difficulty">${Object.entries(AI.DIFFICULTIES).map(([id, d]) => `<option value="${id}" ${id === settings.aiDifficulty ? 'selected' : ''}>${d.label} · ${d.hint}</option>`).join('')}</select></label>
+      <label>出牌速度<select id="local-bot-speed">${Object.entries(AI.BOT_SPEEDS).map(([id, s]) => `<option value="${id}" ${id === settings.botSpeed ? 'selected' : ''}>${s.label}</option>`).join('')}</select></label></section>`;
+  }
+
   function render() {
     if (!node) return;
     node.innerHTML = `<div class="lb-wrap">
@@ -246,6 +254,7 @@
         </div>
         <div class="mode-cards">
           ${onlineCardHtml()}
+          ${practiceSettingsHtml()}
           ${R.MODE_ORDER.map(cardHtml).join('')}
         </div>
         <div class="lb-hist">
@@ -285,6 +294,10 @@
   /* ---------------- 事件 ---------------- */
 
   function bind() {
+    node.addEventListener('change', (e) => {
+      const key = { 'local-ai-difficulty': 'aiDifficulty', 'local-bot-speed': 'botSpeed' }[e.target.id];
+      if (key) hooks.onPracticeSettings?.({ [key]: e.target.value });
+    });
     node.addEventListener('click', (e) => {
       const enter = e.target.closest('[data-enter]');
       if (enter) {

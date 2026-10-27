@@ -5,6 +5,33 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (R) {
   'use strict';
 
+  const DIFFICULTIES = Object.freeze({
+    easy: Object.freeze({ label: '简单', hint: '基础牌型组合', roots: 0, draws: 0, leaves: 0, risk: 0 }),
+    normal: Object.freeze({ label: '普通', hint: '牌效与有限前瞻', roots: 3, draws: 6, leaves: 2, risk: 8 }),
+    hard: Object.freeze({ label: '困难', hint: '扩大搜索与风险判断', roots: 5, draws: 12, leaves: 3, risk: 16 })
+  });
+  const BOT_SPEEDS = Object.freeze({
+    slow: Object.freeze({ label: '慢', value: .5 }),
+    normal: Object.freeze({ label: '中', value: 1.1 }),
+    fast: Object.freeze({ label: '快', value: 2.2 })
+  });
+  const difficultyOf = (id) => typeof id === 'string' && Object.hasOwn(DIFFICULTIES, id) ? id : 'normal';
+  const speedOf = (id) => typeof id === 'string' && Object.hasOwn(BOT_SPEEDS, id) ? id : 'normal';
+
+  function basicScore(hand, mode) {
+    const c = R.counts(hand); let score = 0;
+    for (let t = 0; t < 27; t++) {
+      if (!c[t]) continue;
+      if (t === mode.wild) score += c[t] * 8;
+      if (c[t] >= 3) score += 12;
+      if (c[t] >= 2) score += 3.2;
+      if (t % 9 <= 6 && c[t + 1] && c[t + 2]) score += 10;
+      if (t % 9 <= 7 && c[t + 1]) score += 2.1;
+      if (t % 9 <= 6 && c[t + 2]) score += 1.2;
+    }
+    return score;
+  }
+
   const suitCache = new Map([[0, [0]]]);
   const distanceCache = new Map();
   const CACHE_LIMIT = 30000;
@@ -157,14 +184,14 @@
 
   function immediate(tile, mode, context) {
     if (tile === mode.wild && Number.isInteger(context.chongCount)) return 3 * (R.CHONG_POINTS[context.chongCount] || 0);
-    if (mode.chickens && context.firstChicken === null && (tile === R.YAOJI || tile === R.WUGU)) return tile === R.WUGU ? 6 : 3;
+    if (mode.chickens && context.firstChicken === null && (tile === R.YAOJI || tile === R.WUGU)) return R.CHICKEN_BASE[tile] * 3;
     return 0;
   }
 
-  // 根部保留三个候选，每个最多展开六种有效摸牌、两种后续弃牌。
-  function lookAhead(row, melds, mode, evaluate) {
+  // 按难度限制根候选、有效摸牌与后续弃牌的展开数量。
+  function lookAhead(row, melds, mode, evaluate, level) {
     let total = 0;
-    for (const draw of row.draws.slice().sort((a, b) => b.left - a.left || a.tile - b.tile).slice(0, 6)) {
+    for (const draw of row.draws.slice().sort((a, b) => b.left - a.left || a.tile - b.tile).slice(0, level.draws)) {
       if (draw.win) continue;
       const hand = row.hand.concat(draw.tile), c = R.counts(hand);
       const candidates = [];
@@ -176,7 +203,7 @@
       candidates.sort((a, b) => a.shanten - b.shanten || a.tile - b.tile);
       const seen = row.seen.slice(); seen[draw.tile]++;
       let best = 0;
-      for (const candidate of candidates.slice(0, 2)) {
+      for (const candidate of candidates.slice(0, level.leaves)) {
         const leaf = evaluate(remove(hand, candidate.tile), melds, seen);
         best = Math.max(best, leaf.ukeire);
       }
@@ -187,6 +214,7 @@
 
   function analyzeDiscards(hand, melds = [], mode, context = {}) {
     const M = R.resolveMode(mode), evaluate = evaluator(M, context);
+    const difficulty = difficultyOf(context.difficulty), level = DIFFICULTIES[difficulty];
     const seen = visible(hand, melds, context), ctx = { ...context, seen };
     const rows = [...new Set(hand)].map((tile) => {
       const rest = remove(hand, tile);
@@ -194,11 +222,12 @@
       const risk = riskOf(tile, M, ctx);
       const reward = immediate(tile, M, ctx);
       return { ...metric, tile, hand: rest, risk, reward, future: 0,
-        value: metric.ukeire + metric.winValue * .6 + reward * .8 - risk * 8 };
+        value: difficulty === 'easy' ? basicScore(rest, M) : metric.ukeire + metric.winValue * .6 + reward * .8 - risk * level.risk };
     });
     if (!rows.length) return [];
+    if (difficulty === 'easy') return rows.sort((a, b) => b.value - a.value || a.tile - b.tile);
     const minimum = Math.min(...rows.map((r) => r.shanten));
-    const folding = minimum >= 2 && context.wallLeft != null && context.wallLeft < 28
+    const folding = minimum >= (difficulty === 'hard' ? 1 : 2) && context.wallLeft != null && context.wallLeft < (difficulty === 'hard' ? 40 : 28)
       && (context.players || []).some((p) => p.id !== context.seat && p.tingDeclared);
     // 尚未听牌时可用一步进度换取确定的冲分；已听牌时优先保留听口。
     const canCash = (r) => minimum > 0 && r.tile === M.wild && r.reward > 0 && r.shanten === minimum + 1;
@@ -210,10 +239,10 @@
       return score(b) - score(a) || a.tile - b.tile;
     };
     rows.sort(order);
-    if (context.lookahead !== false) for (const row of rows.slice(0, 3)) {
+    if (context.lookahead !== false) for (const row of rows.slice(0, level.roots)) {
       if (!eligible(row)) continue;
-      row.future = lookAhead(row, melds, M, evaluate);
-      row.value += row.future * .35;
+      row.future = lookAhead(row, melds, M, evaluate, level);
+      row.value += row.future * (difficulty === 'hard' ? .55 : .35);
     }
     return rows.sort(order);
   }
@@ -235,6 +264,11 @@
     if (player.tingDeclared || player.melds.length >= 4) return null;
     const M = R.resolveMode(mode);
     if (R.isWildTile(tile, M)) return null;
+    if (difficultyOf(context.difficulty) === 'easy') {
+      const c = R.counts(player.hand);
+      if (acts.includes('gang') && context.wallLeft !== 0 && c[tile] >= 3) return 'gang';
+      return acts.includes('peng') && c[tile] >= 2 ? 'peng' : null;
+    }
     const evaluate = evaluator(M, context), base = evaluate(player.hand, player.melds);
     const ctx = { ...context, seen: base.seen, lookahead: false };
     let best = null, value = -Infinity;
@@ -246,8 +280,8 @@
       const after = act === 'peng' ? analyzeDiscards(hand, melds, M, ctx)[0] : evaluate(hand, melds, base.seen);
       if (!after) continue;
       const chicken = context.firstChicken;
-      const responsibility = chicken && !chicken.taken && chicken.tile === tile && chicken.p !== context.seat ? 3 : 0;
-      const score = callValue(after, base, (act === 'gang' ? 3 : 0) + responsibility);
+      const responsibility = chicken && !chicken.taken && chicken.tile === tile && chicken.p !== context.seat ? R.RESPONSIBILITY_POINT : 0;
+      const score = callValue(after, base, (act === 'gang' ? R.KONG_POINT : 0) + responsibility);
       if (score != null && score > value) { best = act; value = score; }
     }
     return best;
@@ -258,6 +292,15 @@
     if (!(actions.angang || []).length && !(actions.bugang || []).length) return null;
     if (!player) return null;
     const M = R.resolveMode(mode), evaluate = evaluator(M, context);
+    const difficulty = difficultyOf(context.difficulty);
+    if (difficulty === 'easy') {
+      const c = R.counts(player.hand);
+      for (const type of ['angang', 'bugang']) for (const tile of actions[type] || []) {
+        if (R.isWildTile(tile, M)) continue;
+        if ((type === 'angang' && c[tile] === 4) || (type === 'bugang' && c[tile] && player.melds.some((m) => m.type === 'peng' && m.tile === tile))) return { type, tile };
+      }
+      return null;
+    }
     const baseline = analyzeDiscards(player.hand, player.melds, M, { ...context, lookahead: false })[0];
     if (!baseline) return null;
     let best = null, value = -Infinity;
@@ -271,15 +314,15 @@
         const old = melds.find((m) => m.type === 'peng' && m.tile === tile);
         if (!old) continue;
         old.type = 'gang'; old.tiles.push(tile);
-        if (riskOf(tile, M, { ...context, seen: baseline.seen }) > .4) continue;
+        if (riskOf(tile, M, { ...context, seen: baseline.seen }) > (difficulty === 'hard' ? .3 : .4)) continue;
       }
       const after = evaluate(hand, melds, baseline.seen);
-      const score = callValue(after, baseline, 9);
+      const score = callValue(after, baseline, R.KONG_POINT * 3);
       if (score != null && score > value) { value = score; best = { type, tile }; }
     }
     return best;
   }
 
-  return { chooseDiscard, decideClaim, decideSelfGang, shanten, analyzeDiscards,
+  return { DIFFICULTIES, BOT_SPEEDS, difficultyOf, speedOf, chooseDiscard, decideClaim, decideSelfGang, shanten, analyzeDiscards,
     evaluateHand: (hand, melds = [], mode, context = {}) => evaluator(R.resolveMode(mode), context)(hand, melds) };
 });

@@ -9,7 +9,7 @@
   'use strict';
 
   const SEAT_NAMES = ['你', '下家', '对家', '上家'];
-  const KONG_POINT = 3;
+  const KONG_POINT = R.KONG_POINT;
   const BONUS = R.BONUS;
 
   const removeTiles = (hand, tile, n) => {
@@ -25,7 +25,9 @@
   class Game {
     constructor(opts) {
       opts = opts || {};
-      this.speed = opts.speed || 1;
+      this.botSpeed = AI.speedOf(opts.botSpeed);
+      this.speed = opts.speed || AI.BOT_SPEEDS[this.botSpeed].value;
+      this.aiDifficulty = AI.difficultyOf(opts.aiDifficulty);
       this.mode = opts.mode ? R.resolveMode(opts.mode) : R.MODES.classic;
       R.setMode(this.mode);   // 胡牌判定 / 听牌 / 鸡 都跟着当前模式走
       this.handlers = {};
@@ -40,6 +42,7 @@
         hand: [],
         melds: [],
         discards: [],
+        discardCount: 0,
         said: '',
         mustDiscard: false,
         justDrawn: null,
@@ -105,6 +108,7 @@
       this.wall = R.shuffle(R.createWall());
       for (const p of this.players) {
         p.hand = []; p.melds = []; p.discards = []; p.said = '';
+        p.discardCount = 0;
         p.mustDiscard = false; p.justDrawn = null;
         p.tingDeclared = false; p.tianTing = false; p.tingAtDeal = false;
       }
@@ -232,6 +236,7 @@
       pl.said = '';
       this.lastDiscard = { p, tile };
       this.discardSeq += 1;
+      pl.discardCount = (pl.discardCount || 0) + 1;
       // 杠后打出的这张被别人胡 → 热炮
       this.discardHot = this.lastKongBy === p;
       if (this.lastKongBy === p) this.lastKongBy = -1;
@@ -335,7 +340,7 @@
           ? { type: m.type, tile: null, tiles: [] }
           : { type: m.type, tile: m.tile, tiles: m.tiles.slice() })
       }));
-      return { seat: p, players, seen: R.seenCountsOf(this.players[p].hand, players),
+      return { seat: p, players, difficulty: this.aiDifficulty, seen: R.seenCountsOf(this.players[p].hand, players),
         wallLeft: this.wall.length, chongCount: this.chongCount, firstChicken: this.firstChicken };
     }
 
@@ -388,7 +393,7 @@
     /** 现在能不能报听 */
     canTing(p) {
       const pl = this.players[p];
-      return !!pl && !pl.tingDeclared && this.bestTingDiscard(p) != null;
+      return R.canDeclareTing(pl) && this.bestTingDiscard(p) != null;
     }
 
     /** 某人能看到的牌张数：自己手牌 + 四家副露 + 四家牌河 */
@@ -488,18 +493,18 @@
     }
 
     /**
-     * 冲锋鸡被别人碰 / 杠走 → 变成责任鸡：打牌的人赔一个豆（3 分）给拿走的人。
+     * 冲锋鸡被别人碰 / 杠走，打牌的人向拿牌者付责任鸡分。
      */
     settleResponsibility(taker, tile, from) {
       const fc = this.firstChicken;
       if (!fc || fc.taken || fc.p !== from || fc.tile !== tile) return false;
       fc.taken = true;
       const deltas = [0, 0, 0, 0];
-      deltas[from] -= KONG_POINT;
-      deltas[taker] += KONG_POINT;
+      deltas[from] -= R.RESPONSIBILITY_POINT;
+      deltas[taker] += R.RESPONSIBILITY_POINT;
       this.applyDeltas(deltas);
-      this.penaltyLog.push({ kind: '责任鸡', p: from, to: taker, tile, points: KONG_POINT, deltas });
-      this.note(`责任鸡：${this.players[from].name} 的冲锋鸡被 ${this.players[taker].name} 拿走，赔 ${KONG_POINT} 分`);
+      this.penaltyLog.push({ kind: '责任鸡', p: from, to: taker, tile, points: R.RESPONSIBILITY_POINT, deltas });
+      this.note(`责任鸡：${this.players[from].name} 的冲锋鸡被 ${this.players[taker].name} 拿走，赔 ${R.RESPONSIBILITY_POINT} 分`);
       return true;
     }
 
@@ -651,7 +656,7 @@
       const a = this.awaiting;
       if (!a || a.kind !== 'discard' || a.player !== 0 || a.auto) return false;
       const pl = this.players[0];
-      if (pl.tingDeclared) return false;
+      if (!R.canDeclareTing(pl)) return false;
       const tile = this.bestTingDiscard(0);
       if (tile == null) return false;
       pl.tingDeclared = true;
@@ -707,7 +712,7 @@
         const info = R.winInfo(fullHand, pl.melds, this.mode);
 
         const extra = [];
-        let points = info ? info.points : 1;
+        let points = info ? info.points : R.HU_BASE;
         if (info && info.hardBonus) { points += info.hardBonus; extra.push(`硬胡 +${info.hardBonus}`); }
         if (opts.selfDraw) { points += 1; extra.push('自摸 +1'); }
         if (opts.gangFlower) { points += 1; extra.push('杠上花 +1'); }
@@ -731,7 +736,7 @@
         };
       });
 
-      // 胡牌分：自摸三家各付；抢杠由杠家包三家；其余由点炮者付（一炮多响各赔一份）
+      // 自摸三家各付；点炮或抢杠由出牌者/补杠者向每位胡家各付一份。
       const winDeltas = [0, 0, 0, 0];
       for (const r of results) {
         if (r.selfDraw) {
@@ -740,9 +745,6 @@
             winDeltas[i] -= r.points;
             winDeltas[r.p] += r.points;
           }
-        } else if (opts.robKong) {
-          winDeltas[r.from] -= r.points * 3;
-          winDeltas[r.p] += r.points * 3;
         } else {
           winDeltas[r.from] -= r.points;
           winDeltas[r.p] += r.points;
@@ -827,7 +829,7 @@
       const deltas = [0, 0, 0, 0];
       for (let i = 0; i < 4; i++) {
         if (!ting[i].tiles.length) continue;
-        const v = Math.max(1, ting[i].points);
+        const v = Math.max(R.HU_BASE, ting[i].points);
         for (let j = 0; j < 4; j++) {
           if (j === i || ting[j].tiles.length) continue;
           deltas[j] -= v;

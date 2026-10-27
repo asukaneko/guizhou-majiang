@@ -16,12 +16,16 @@
   function layout() {
     const width = root.visualViewport?.width || root.innerWidth;
     const height = root.visualViewport?.height || root.innerHeight;
+    // 竖拿手机的聊天按设备方向显示，软键盘收缩视口时也不旋转输入框。
+    const chatting = document.body.classList.contains('chat-open');
     const view = measure(width, height, root.matchMedia('(pointer: coarse)').matches,
-      document.body.classList.contains('in-game'));
+      document.body.classList.contains('in-game') && !chatting);
     document.documentElement.style.setProperty('--viewport-w', width + 'px');
     document.documentElement.style.setProperty('--viewport-h', height + 'px');
+    document.documentElement.style.setProperty('--viewport-top', (root.visualViewport?.offsetTop || 0) + 'px');
     document.body.classList.toggle('mobile-table', view.mobile);
     document.body.classList.toggle('rotate-game', view.rotated);
+    document.body.classList.toggle('chat-short', chatting && height < 240);
     return view;
   }
   async function enter(force = false) {

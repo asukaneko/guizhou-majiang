@@ -112,6 +112,7 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
   class Element {
     constructor(id = '') {
       this.id = id; this.innerHTML = ''; this.dataset = {}; this.children = new Map();
+      this.nodes = []; this.value = ''; this.scrollTop = 0; this.scrollHeight = 0;
       this.style = { setProperty() {} }; this.clientWidth = 844; this.clientHeight = 348;
       this.events = new Map(); const classes = new Set();
       this.classList = {
@@ -121,6 +122,11 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
     }
     addEventListener(name, fn) { this.events.set(name, fn); }
     setAttribute(name, value) { this[name] = value; }
+    focus() {}
+    blur() {}
+    replaceChildren(...nodes) { this.nodes = nodes; }
+    append(...nodes) { this.nodes.push(...nodes); }
+    get childElementCount() { return this.nodes.length; }
     querySelector(s) { if (!this.children.has(s)) this.children.set(s, new Element()); return this.children.get(s); }
     querySelectorAll() { return []; }
     appendChild() {}
@@ -152,19 +158,34 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
     close() { this.readyState = 3; }
   }
   const ctx = vm.createContext({ document: doc, localStorage: storage(), sessionStorage: storage(),
-    GZRules: R, GZGame: require('../src/js/game.js'),
+    GZRules: R, GZAI: require('../src/js/ai.js'), GZGame: require('../src/js/game.js'),
     location: { protocol: 'http:', host: 'localhost:8788' }, WebSocket: Socket,
     innerWidth: 390, innerHeight: 844, matchMedia: () => ({ matches: true }),
     navigator: { userActivation: { isActive: false } }, screen: {},
     addEventListener() {}, setTimeout: (fn, ms) => { timeouts.push({ fn, ms }); return timeouts.length; },
     setInterval: () => 1, clearTimeout() {}, clearInterval() {}, console });
   ctx.window = ctx;
-  for (const name of ['tiles.js', 'profile.js', 'viewport.js', 'net.js', 'remote-game.js', 'online.js', 'lobby.js', 'ui.js']) script(ctx, name);
+  for (const name of ['tiles.js', 'profile.js', 'viewport.js', 'net.js', 'remote-game.js', 'online.js', 'chat.js', 'lobby.js', 'ui.js']) script(ctx, name);
   listeners.get('DOMContentLoaded')[0]();
   assert.ok(doc.body.classList.contains('in-lobby'));
   assert.equal(elements.get('#lobby').classList.contains('hidden'), false);
   assert.equal(elements.get('#brand-sub').textContent, '贵州麻将 · 游戏大厅');
+  assert.match(elements.get('#lobby').innerHTML, /id="local-ai-difficulty"/);
+  assert.match(elements.get('#lobby').innerHTML, /困难 · 扩大搜索与风险判断/);
+  elements.get('#lobby').events.get('change')({ target: { id: 'local-ai-difficulty', value: 'hard' } });
+  elements.get('#lobby').events.get('change')({ target: { id: 'local-bot-speed', value: 'fast' } });
+  assert.equal(ctx.localStorage.getItem('gz-ai-difficulty'), 'hard');
+  assert.equal(ctx.localStorage.getItem('gz-speed'), '2');
   assert.equal(sockets.length, 0);
+  for (const mode of ['classic', 'yitong']) {
+    ctx.GZUI.showRules(mode);
+    const rules = elements.get('#overlay').innerHTML;
+    assert.match(rules, /清三龙七对 <span class="hl">104/);
+    assert.match(rules, /至少 14 分/);
+    assert.match(rules, /每个豆 4 分/);
+    assert.match(rules, /向每位胡家付一份/);
+  }
+  ctx.GZUI.hideResult();
   ctx.GZUI.showOnline();
   assert.ok(doc.body.classList.contains('in-online'));
   const ws = sockets[0]; ws.readyState = 1; ws.onopen();
@@ -177,9 +198,9 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
   g.players[1].name = '<img src=x>';
   g.players[2].melds = [{ type: 'angang', tile: 7, tiles: [7, 7, 7, 7] }];
   g.prompts.set(0, { id: 'prompt1', kind: 'discard', self: g.selfActions(0) });
-  const room = { id: '4321', host: true, full: true, running: true, roundNo: 1, totalRounds: 2,
+  const room = { id: '4321', host: true, full: true, running: true, allReady: true, roundId: g.roundId, readyId: 'ready1', roundNo: 1, totalRounds: 2,
     config: { mode: 'yitong', totalRounds: 2 },
-    seats: g.players.map((p, i) => ({ uid: `seat${i}`, name: p.name, you: i === 0, bot: i > 0, seat: i })) };
+    seats: g.players.map((p, i) => ({ uid: `seat${i}`, name: p.name, you: i === 0, host: i === 0, bot: i > 0, seat: i })) };
   receive({ t: 'joined', room: { ...room, running: false, roundNo: 0 } });
   assert.ok(doc.body.classList.contains('in-online'), '新建或加入等待房间能正常显示');
   assert.equal(ctx.GZOnline.started, false);
@@ -189,6 +210,10 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
   receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [] });
   assert.equal(elements.get('#btn-auto').textContent, '人机代打 关');
   assert.equal(elements.get('#btn-new').disabled, true, '联机中本局结束后才能开下一局');
+  assert.equal(elements.get('#btn-speed').disabled, false);
+  elements.get('#btn-speed').events.get('click')();
+  assert.deepEqual(JSON.parse(JSON.stringify(ws.sent.at(-1))), { t: 'config', config: { botSpeed: 'fast' } });
+  assert.equal(ctx.localStorage.getItem('gz-speed'), '2', '联机调整不改本地速度设置');
   elements.get('#btn-auto').events.get('click')();
   assert.deepEqual(JSON.parse(JSON.stringify(ws.sent.at(-1))), { t: 'action', action: { type: 'autoplay', enabled: true } });
   g.players[0].botPlay = true;
@@ -208,8 +233,23 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
   ctx.GZUI.showResult(ctx.__game.result);
   assert.equal(elements.get('#overlay').classList.contains('hidden'), false);
   receive({ t: 'room', room: { ...room, host: false, running: false } });
-  assert.equal(elements.get('#overlay').querySelector('[data-act="next"]').disabled, true);
+  assert.equal(elements.get('#btn-speed').disabled, true);
+  const resultNext = elements.get('#overlay').querySelector('[data-act="next"]');
+  assert.equal(resultNext.disabled, false);
+  assert.equal(resultNext.textContent, '准备');
+  const clickNext = () => listeners.get('click')[0]({ target: { closest: (s) => s === '[data-act]' ? { dataset: { act: 'next' } } : null } });
+  clickNext();
+  assert.deepEqual(JSON.parse(JSON.stringify(ws.sent.at(-1))), { t: 'ready', ready: true, roundId: g.roundId, readyId: 'ready1' });
   assert.equal(elements.get('#btn-new').disabled, true);
+  receive({ t: 'room', room: { ...room, host: false, running: false, seats: room.seats.map((s) => s.you ? { ...s, ready: true } : s) } });
+  assert.equal(resultNext.textContent, '已准备（取消）');
+  clickNext(); assert.equal(ws.sent.at(-1).ready, false);
+  const waitingRoom = { ...room, running: false, allReady: false, seats: room.seats.map((s, i) => i === 1 ? { ...s, bot: false, ready: false } : s) };
+  receive({ t: 'room', room: waitingRoom });
+  assert.equal(resultNext.disabled, true); assert.equal(elements.get('#btn-new').disabled, true);
+  const sentCount = ws.sent.length;
+  elements.get('#btn-new').events.get('click')(); assert.equal(ws.sent.length, sentCount, '未准备时顶部入口也不能开局');
+  assert.match(elements.get('#overlay').querySelector('[data-ready-status]').textContent, /准备/);
   receive({ t: 'room', room: { ...room, host: true, running: false } });
   assert.equal(elements.get('#overlay').querySelector('[data-act="next"]').disabled, false);
   assert.equal(elements.get('#btn-new').disabled, false);
@@ -246,12 +286,16 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
 
   elements.set('#ol-mode2', Object.assign(new Element(), { value: 'classic' }));
   elements.set('#ol-rounds2', Object.assign(new Element(), { value: '1' }));
-  online.events.get('change')({ target: { id: 'ol-mode2' } });
-  assert.deepEqual(JSON.parse(JSON.stringify(ws.sent.at(-1))), { t: 'config', config: { mode: 'classic', totalRounds: 1 } });
+  online.events.get('change')({ target: { id: 'ol-mode2', value: 'classic' } });
+  assert.deepEqual(JSON.parse(JSON.stringify(ws.sent.at(-1))), { t: 'config', config: { mode: 'classic' } });
   const configuredRoom = { ...finishedRoom, config: { mode: 'classic', totalRounds: 1 } };
   receive({ t: 'room', room: configuredRoom });
   assert.match(online.innerHTML, /data-act="start" >开启新的一桌/);
   assert.match(online.innerHTML, /累计分数继续保留/);
+  online.events.get('change')({ target: { id: 'ol-difficulty2', value: 'hard' } });
+  assert.deepEqual(JSON.parse(JSON.stringify(ws.sent.at(-1))), { t: 'config', config: { aiDifficulty: 'hard' } });
+  online.events.get('change')({ target: { id: 'ol-botspeed2', value: 'slow' } });
+  assert.deepEqual(JSON.parse(JSON.stringify(ws.sent.at(-1))), { t: 'config', config: { botSpeed: 'slow' } });
   onlineClick('start');
   assert.equal(ws.sent.at(-1).t, 'newtable');
   receive({ t: 'room', room: { ...configuredRoom, running: true, finished: false, roundNo: 1, totalRounds: 1 } });
@@ -273,10 +317,20 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
   ctx.__ui.enterMode('classic');
   assert.ok(doc.body.classList.contains('rotate-game'), '练习桌也自动横屏');
   const previous = ctx.__game;
+  assert.equal(previous.aiDifficulty, 'hard');
+  assert.equal(previous.botSpeed, 'fast');
+  assert.equal(previous.speed, ctx.GZAI.BOT_SPEEDS.fast.value);
+  assert.ok(elements.get('#btn-chat').classList.contains('hidden'), '本地练习不展示联机聊天');
+  elements.get('#btn-difficulty').events.get('click')();
+  assert.equal(previous.aiDifficulty, 'easy');
+  elements.get('#btn-speed').events.get('click')();
+  assert.equal(previous.botSpeed, 'slow');
   assert.equal(elements.get('#btn-new').disabled, false);
   elements.get('#btn-new').events.get('click')();
   assert.notEqual(ctx.__game, previous);
   assert.equal(previous.phase, 'ended');
   assert.equal(ctx.__game.roundNo, previous.roundNo + 1);
+  assert.equal(ctx.__game.aiDifficulty, 'easy');
+  assert.equal(ctx.__game.botSpeed, 'slow');
   ctx.__game.phase = 'ended';
 });

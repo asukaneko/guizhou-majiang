@@ -76,6 +76,9 @@ async function client(url) {
           const room = app.rooms.get(table.id);
           const nextDealer = room.game.nextDealer;
           const owner = room.hostUid === table.b.welcome.uid ? table.b : table.a;
+          const guest = owner === table.b ? table.a : table.b;
+          guest.send({ t: 'ready', ready: true, roundId: room.game.roundId, readyId: room.readyId });
+          await owner.next('room', (m) => m.room.allReady);
           owner.send({ t: 'next' });
           const opening = await table.a.next('snapshot', (m) => m.snap.roundNo === 2 && m.snap.phase === 'dealing');
           assert.deepEqual(opening.snap.scores, done.snap.scores, '换局继承累计分');
@@ -97,6 +100,10 @@ async function client(url) {
       owner.send({ t: 'config', config: { mode, totalRounds: 1 } });
       await owner.next('room', (m) => m.room.config.mode === mode && m.room.finished);
       owner.send({ t: 'addbot' }); await owner.next('room', (m) => m.room.full);
+      const room = app.rooms.get(table.id);
+      const guest = owner === table.b ? table.a : table.b;
+      guest.send({ t: 'ready', ready: true, roundId: room.game.roundId, readyId: room.readyId });
+      await owner.next('room', (m) => m.room.allReady);
       owner.send({ t: 'newtable' });
       const opening = (await table.a.next('snapshot', (m) => m.snap.roundId !== previous.roundId && m.snap.phase === 'dealing')).snap;
       assert.equal(opening.roomId, table.id);
@@ -112,6 +119,6 @@ async function client(url) {
       }
       console.log(`  房间 ${table.id} 原座位开启新桌，${mode} 第 1 局完成`);
     }
-    console.log('E2E OK：并行双玩法、六局、断线恢复、换局、完桌配置及移除机器人、原房开新桌、分数零和、局数限制');
+    console.log('E2E OK：并行双玩法、六局、断线恢复、准备后换局、完桌配置及移除机器人、准备后原房开新桌、分数零和、局数限制');
   } finally { await app.close(); }
 })().catch((err) => { console.error('E2E FAIL:', err); process.exitCode = 1; });
