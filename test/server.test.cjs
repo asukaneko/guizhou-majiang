@@ -332,3 +332,40 @@ test('暗杠信息从牌面字段、特效和旁白隐藏；终止后不再增�
   g.abort(); await claims;
   assert.equal(g.prompts.size, 0);
 });
+
+test('在线人数：welcome 首推、连接/断开/恢复广播 stats', async (t) => {
+  const app = await server(t);
+  const a = await client(app);
+  assert.equal(a.welcome.online, 1, 'welcome 首推在线人数');
+  assert.equal(a.welcome.rooms, 0);
+  const firstStats = await a.wait('stats');
+  assert.deepEqual(firstStats, { t: 'stats', online: 1, rooms: 0 });
+
+  const b = await client(app);
+  const joined = await a.wait('stats');
+  assert.equal(joined.online, 2);
+
+  // b 断开后有 60s 宽限期，但 ws 已不在 → online 应回落
+  b.ws.close();
+  const afterClose = await a.wait('stats', (m) => m.online === 1);
+  assert.equal(afterClose.online, 1);
+
+  // resume：新建连接恢复 b 的会话，online 回到 2
+  const b2 = new WebSocket(app.url);
+  const b2msgs = [];
+  b2.on('message', (raw) => b2msgs.push(JSON.parse(raw.toString())));
+  await once(b2, 'open');
+  b2.send(JSON.stringify({ t: 'resume', token: b.welcome.resumeToken }));
+  const resumed = await (async () => {
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      const m = b2msgs.find((x) => x.t === 'resumed');
+      if (m) return m;
+      await sleep(5);
+    }
+    assert.fail('未收到 resumed');
+  })();
+  assert.equal(resumed.uid, b.welcome.uid);
+  await a.wait('stats', (m) => m.online === 2);
+  b2.close(); a.ws.close();
+});

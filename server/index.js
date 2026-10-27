@@ -45,6 +45,14 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
   const sessions = new Map();
   const send = (ws, obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
   const onlineCount = () => [...players.values()].filter((p) => p.ws && p.ws.readyState === 1).length;
+  const stats = () => ({ online: onlineCount(), rooms: rooms.size });
+  // 连接 / 断开 / 恢复 / 踢除都会改变在线人数；广播给所有活跃连接，供大厅显示。
+  function broadcastStats() {
+    const payload = JSON.stringify({ t: 'stats', ...stats() });
+    for (const p of players.values()) {
+      if (p.ws && p.ws.readyState === 1) p.ws.send(payload);
+    }
+  }
 
   function newRoomCode() {
     const start = crypto.randomInt(9000);
@@ -72,6 +80,7 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
   function forget(p) {
     clearTimeout(p.expiry);
     sessions.delete(p.token); players.delete(p.uid);
+    broadcastStats();
   }
 
   function resume(current, token, ws) {
@@ -95,6 +104,7 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
       room.sendChatHistory(previous.uid);
       room.broadcastRoom(); room.broadcastGame();
     }
+    broadcastStats();
     return previous;
   }
 
@@ -179,7 +189,8 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
     players.set(me.uid, me); sessions.set(me.token, me);
     ws.alive = true;
     ws.on('pong', () => { ws.alive = true; });
-    send(ws, { t: 'welcome', uid: me.uid, resumeToken: me.token, online: onlineCount() });
+    send(ws, { t: 'welcome', uid: me.uid, resumeToken: me.token, online: onlineCount(), rooms: rooms.size });
+    broadcastStats();
     ws.on('message', (raw, binary) => {
       if (me.ws !== ws) return;
       try {
@@ -199,6 +210,7 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
       }
       me.expiry = setTimeout(() => { leaveRoom(me); forget(me); }, reconnectGrace);
       me.expiry.unref();
+      broadcastStats(); // 在线人数按「有活跃连接」计，断开即时回落
     });
     ws.on('error', () => {});
   });

@@ -1298,6 +1298,12 @@
 
     // 联机消息只在启动时挂一次；onNetMsg 自己判断当前牌桌
     window.GZNet.on('msg', onNetMsg);
+    window.GZNet.on('msg', (m) => {
+      // 在线人数：welcome 首推 + stats 增量广播，喂给大厅联机卡片
+      if (m && (m.t === 'welcome' || m.t === 'stats') && typeof m.online === 'number') {
+        root.GZLobby?.setServerStats({ online: m.online, rooms: m.rooms });
+      }
+    });
     window.GZNet.on('status', (st) => {
       const banner = $('#net-status');
       const disconnected = ['lost', 'connecting', 'reconnecting', 'error'].includes(st);

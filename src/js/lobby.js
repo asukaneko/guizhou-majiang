@@ -12,6 +12,7 @@
   let node = null;
   let hooks = { onEnter: null, onRules: null };
   let renaming = false;
+  let serverStats = null; // {online, rooms}，来自服务器 welcome/stats 广播
 
   const clock = (ts) => {
     const d = new Date(ts);
@@ -173,6 +174,20 @@
     </article>`;
   }
 
+  function setServerStats(s) {
+    const next = s && typeof s.online === 'number' ? { online: s.online, rooms: s.rooms || 0 } : null;
+    const prev = serverStats;
+    serverStats = next;
+    if (JSON.stringify(prev) !== JSON.stringify(next) && node && !node.classList.contains('hidden')) render();
+  }
+
+  function onlineStatHtml() {
+    if (!serverStats) return '分享房号，一起开桌';
+    const { online, rooms } = serverStats;
+    if (!online) return '当前服务器暂无在线玩家';
+    return `当前在线 <b class="ol-stat-num">${online}</b> 人 · ${rooms} 间房间`;
+  }
+
   function onlineCardHtml() {
     return `<article class="mode-card online">
       <div class="mc-top">
@@ -194,7 +209,7 @@
         <li>服务端跑规则，各家只看自己的牌</li>
       </ul>
       <div class="mc-foot">
-        <div class="mc-stat"><span>网页联机</span><b>分享房号，一起开桌</b></div>
+        <div class="mc-stat"><span>网页联机</span><b id="ol-server-stats">${onlineStatHtml()}</b></div>
         <button class="mc-play" data-act="online">去联机</button>
       </div>
     </article>`;
@@ -348,5 +363,5 @@
     render();
   }
 
-  root.GZLobby = { init, show, hide, render };
+  root.GZLobby = { init, show, hide, render, setServerStats };
 })(typeof window !== 'undefined' ? window : globalThis);

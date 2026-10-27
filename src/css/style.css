@@ -1398,6 +1398,7 @@ body.in-online #online { display: grid; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.mc-stat .ol-stat-num { color: #a9d6c2; }
 .mc-play {
   flex: 0 0 auto;
   height: 34px;
