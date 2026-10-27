@@ -1,4 +1,4 @@
-/* 真实 HTTP/WS：两种玩法同时开桌，各连打两局，并在对局中恢复掉线座位。 */
+/* 真实 HTTP/WS：双玩法各连打两局、恢复掉线座位，再在原房间配置并各开一局新桌。 */
 'use strict';
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
@@ -30,7 +30,7 @@ async function client(url) {
     while (Date.now() < deadline) {
       const idx = c.messages.findIndex((m, i) => i >= c.cursor && m.t === t && predicate(m));
       if (idx >= 0) { c.cursor = idx + 1; return c.messages[idx]; }
-      const err = c.messages.find((m) => m.t === 'error');
+      const err = c.messages.find((m, i) => i >= c.cursor && m.t === 'error');
       if (err) throw new Error(err.err);
       await wait(5);
     }
@@ -89,7 +89,29 @@ async function client(url) {
       const owner = app.rooms.get(table.id).hostUid === table.b.welcome.uid ? table.b : table.a;
       owner.send({ t: 'start' });
       await owner.next('error', (m) => m.err.includes('已打满'));
+      const previous = app.rooms.get(table.id).game;
+      const mode = table.mode === 'classic' ? 'yitong' : 'classic';
+      const bot = app.rooms.get(table.id).seats.find((s) => s.bot);
+      owner.send({ t: 'removebot', uid: bot.uid });
+      for (const c of [table.a, table.b]) await c.next('room', (m) => !m.room.full && m.room.finished);
+      owner.send({ t: 'config', config: { mode, totalRounds: 1 } });
+      await owner.next('room', (m) => m.room.config.mode === mode && m.room.finished);
+      owner.send({ t: 'addbot' }); await owner.next('room', (m) => m.room.full);
+      owner.send({ t: 'newtable' });
+      const opening = (await table.a.next('snapshot', (m) => m.snap.roundId !== previous.roundId && m.snap.phase === 'dealing')).snap;
+      assert.equal(opening.roomId, table.id);
+      assert.equal(opening.roundNo, 1);
+      assert.equal(opening.totalRounds, 1);
+      assert.equal(opening.mode, mode);
+      assert.deepEqual(opening.scores, previous.scores, '原房新桌继承上一桌累计分');
+      const done = (await table.a.next('snapshot', (m) => m.snap.roundId !== previous.roundId && m.snap.result)).snap;
+      assert.equal(done.mode, mode);
+      assert.equal(done.scores.reduce((a, b) => a + b, 0), 0);
+      for (const c of [table.a, table.b]) {
+        assert.deepEqual(c.messages.filter((m) => m.t === 'error').map((m) => m.err), c === owner ? ['已打满约定的 2 局，请在房间开启新的一桌'] : []);
+      }
+      console.log(`  房间 ${table.id} 原座位开启新桌，${mode} 第 1 局完成`);
     }
-    console.log('E2E OK：并行双玩法、四局、断线恢复、换局、分数零和、局数限制');
+    console.log('E2E OK：并行双玩法、六局、断线恢复、换局、完桌配置及移除机器人、原房开新桌、分数零和、局数限制');
   } finally { await app.close(); }
 })().catch((err) => { console.error('E2E FAIL:', err); process.exitCode = 1; });

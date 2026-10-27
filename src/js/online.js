@@ -29,15 +29,16 @@
   function handle(msg) {
     if (msg.t === 'joined') {
       const sameRoom = room && room.id === msg.room.id;
+      const wasStarted = started;
       room = msg.room;
       if (!sameRoom) started = false;
-      if (room.running || (room.roundNo > 0 && (msg.resumed || sameRoom))) enterTable();
+      if (room.running || (room.roundNo > 0 && (msg.resumed || sameRoom) && (!sameRoom || wasStarted))) enterTable();
       else { show(); root.GZUI?.showOnlineRoom(); }
     } else if (msg.t === 'room') {
       if (!room || room.id !== msg.room.id) return;
       const previous = room; room = msg.room;
       if (room.running && !started) enterTable();
-      else if (room.running && room.roundNo !== previous.roundNo) root.GZUI?.hideResult();
+      else if (room.running && (!previous.running || room.roundNo !== previous.roundNo)) root.GZUI?.hideResult();
       if (!started) render();
     } else if (msg.t === 'resume-failed') {
       if (room) { leave(true); onError('房间保留时间已过，请重新加入'); }
@@ -50,6 +51,7 @@
   }
   function show() {
     if (!node) return;
+    started = false;
     node.classList.remove('hidden');
     if (webMode() && Net.status() === 'closed') Net.connect(defaultAddr());
     render();
@@ -95,9 +97,9 @@
         ${s.host ? '<span class="ol-seat-tag host">房主</span>' : ''}
         ${s.bot && canEdit ? `<button class="ol-mini" data-act="removebot" data-uid="${esc(s.uid)}">移除</button>` : ''}</div></div>`;
     }).join('');
-    const finished = room.roundNo >= room.totalRounds && !room.running;
-    let label = room.running ? '返回牌桌' : finished ? '本桌已结束' : !room.host ? '等待房主开局' : room.roundNo ? '开始下一局' : '开始对局';
-    const canStart = room.running || (!finished && canEdit && room.full && !room.seats.some((s) => s.offline));
+    const finished = room.finished ?? (room.roundNo >= room.totalRounds && !room.running);
+    const label = room.running ? '返回牌桌' : !room.host ? (finished ? '等待房主开启新桌' : '等待房主开局') : finished ? '开启新的一桌' : room.roundNo ? '开始下一局' : '开始对局';
+    const canStart = room.running || (canEdit && room.full && !room.seats.some((s) => s.offline));
     return `<div class="ol-card wide"><div class="ol-head"><h2>房间 ${room.id}</h2>${statusHtml()}<span class="ol-tip">第 ${room.roundNo} / ${room.totalRounds} 局</span></div>
       <p class="ol-sub">分享房号 <b class="ol-code">${room.id}</b> 给朋友，等待入座后开始。</p><div class="ol-seats">${rows}</div>
       <div class="ol-config"><label class="ol-field"><span>玩法</span><select id="ol-mode2" ${canEdit ? '' : 'disabled'}>${modeOptions(room.config.mode)}</select></label>
@@ -105,7 +107,7 @@
       ${canEdit ? `<button class="btn-ghost" data-act="addbot" ${room.full ? 'disabled' : ''}>添加机器人</button>` : ''}</div>
       <div class="ol-foot"><button class="btn-ghost" data-act="back">游戏大厅</button><button class="btn-ghost" data-act="leave">退出房间</button>
       <button class="btn-primary" data-act="start" ${canStart ? '' : 'disabled'}>${label}</button></div>
-      <p class="ol-note">${finished ? '约定局数已完成。退出房间后可重新建桌。' : '掉线后保留座位 60 秒，电脑临时代打；恢复连接后回到原座位。'}</p></div>`;
+      <p class="ol-note">${finished ? `本桌已结束，可调整玩法、局数和座位。新桌从第 1 局开始，${room.resetScoresOnNewTable ? '房主已主动退房，新桌重新计分' : '累计分数继续保留'}，房号保持不变。` : '掉线后保留座位 60 秒，电脑临时代打；恢复连接后回到原座位。'}</p></div>`;
   }
   function render() {
     if (!node) return;
@@ -133,7 +135,7 @@
         case 'start':
           root.GZViewport.enter();
           if (room.running) enterTable();
-          else if (room.host) Net.send({ t: room.roundNo ? 'next' : 'start' });
+          else if (room.host) Net.send({ t: (room.finished ?? (room.roundNo >= room.totalRounds)) ? 'newtable' : room.roundNo ? 'next' : 'start' });
           break;
         case 'leave': leave(); break;
         case 'back': hide(); root.GZUI?.showLobby(); break;

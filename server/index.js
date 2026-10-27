@@ -55,11 +55,11 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
     throw new Error('房间数量已满，请稍后再试');
   }
 
-  function leaveRoom(p) {
+  function leaveRoom(p, voluntary = false) {
     const room = p.room;
     if (!room) return;
     p.room = null;
-    room.remove(p.uid);
+    room.remove(p.uid, voluntary);
     if (room.empty()) {
       room.abort(); rooms.delete(room.id);
     } else {
@@ -114,7 +114,7 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
       case 'create': {
         const room = new Room(newRoomCode(), me, gameOptions);
         if (msg.config !== undefined) check(room.setConfig(me.uid, msg.config, false));
-        leaveRoom(me);
+        leaveRoom(me, true);
         rooms.set(room.id, room); me.room = room;
         send(me.ws, { t: 'joined', room: room.publicState(me.uid) }); return;
       }
@@ -124,7 +124,7 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
         if (!room) throw new Error(`没有房号 ${code} 的房间`);
         if (me.room !== room) {
           room.add(me); // 先校验目标房；失败时保留原房间。
-          leaveRoom(me); me.room = room;
+          leaveRoom(me, true); me.room = room;
         }
         send(me.ws, { t: 'joined', room: room.publicState(me.uid) });
         room.broadcastRoom();
@@ -148,7 +148,8 @@ function createMahjongServer({ reconnectGrace = 60000, heartbeatInterval = 30000
         check(room.start()); return;
       }
       case 'next': check(requireRoom().nextRound(me.uid)); return;
-      case 'leave': leaveRoom(me); send(me.ws, { t: 'left' }); return;
+      case 'newtable': check(requireRoom().newTable(me.uid)); return;
+      case 'leave': leaveRoom(me, true); send(me.ws, { t: 'left' }); return;
       case 'action': check(requireRoom().action(me.uid, msg.action)); return;
       case 'sync': {
         const room = requireRoom();

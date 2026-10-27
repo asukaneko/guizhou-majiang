@@ -154,6 +154,98 @@ test('换局：start 与 next 都受总局数限制，机器人可在局间移�
   room.abort();
 });
 
+test('真实 WS：原房配置新桌继承累计分，移除机器人立即广播并沿用房号和座位', async (t) => {
+  const app = await server(t, { gameOptions: { speed: 100 } });
+  const host = await client(app), guest = await client(app);
+  host.send({ t: 'create', config: { mode: 'classic', totalRounds: 1 } });
+  const id = (await host.wait('joined')).room.id;
+  guest.send({ t: 'join', room: id }); await guest.wait('joined');
+  host.send({ t: 'newtable' }); await host.wait('error', (m) => m.err.includes('还没打完'));
+  host.send({ t: 'addbot' }); host.send({ t: 'addbot' });
+  const seats = (await host.wait('room', (m) => m.room.full)).room.seats;
+  host.send({ t: 'start' });
+  await host.wait('snapshot', (m) => m.snap.awaiting);
+  const room = app.rooms.get(id), previous = room.game;
+  host.send({ t: 'newtable' }); await host.wait('error', (m) => m.err.includes('已经开始'));
+  guest.send({ t: 'newtable' }); await guest.wait('error', (m) => m.err.includes('只有房主'));
+
+  previous.scores = [12, -12, 0, 0];
+  previous.settleDraw(); previous.abort();
+  await host.wait('room', (m) => m.room.finished);
+  host.send({ t: 'removebot', uid: seats[2].uid });
+  for (const c of [host, guest]) {
+    const state = (await c.wait('room', (m) => m.room.finished && !m.room.seats[2].uid)).room;
+    assert.equal(state.full, false);
+  }
+  host.send({ t: 'config', config: { mode: 'yitong', totalRounds: 4 } });
+  const configured = (await host.wait('room', (m) => m.room.config.mode === 'yitong')).room;
+  assert.equal(configured.finished, true, '增加新桌局数也不能延长已结束的上一桌');
+  assert.equal(configured.totalRounds, 1);
+  assert.equal(configured.config.totalRounds, 4);
+  host.send({ t: 'next' }); await host.wait('error', (m) => m.err.includes('已打满'));
+  host.send({ t: 'start' }); await host.wait('error', (m) => m.err.includes('已打满'));
+  host.send({ t: 'newtable' }); await host.wait('error', (m) => m.err.includes('空位'));
+  assert.equal(room.game, previous, '开桌校验失败保留上一桌结算');
+  assert.deepEqual(room.game.scores, [12, -12, 0, 0]);
+  host.send({ t: 'addbot' }); await host.wait('room', (m) => m.room.full);
+  host.send({ t: 'newtable' });
+  for (const c of [host, guest]) {
+    const opening = (await c.wait('snapshot', (m) => m.snap.roundId !== previous.roundId && m.snap.phase === 'dealing')).snap;
+    assert.equal(opening.roomId, id);
+    assert.equal(opening.roundNo, 1);
+    assert.equal(opening.totalRounds, 4);
+    assert.equal(opening.mode, 'yitong');
+    assert.deepEqual(opening.scores, c === host ? [12, -12, 0, 0] : [-12, 0, 0, 12]);
+    assert.equal(opening.result, null);
+    const state = (await c.wait('room', (m) => m.room.running)).room;
+    assert.equal(state.finished, false);
+    assert.equal(state.seats[0].uid, seats[0].uid);
+    assert.equal(state.seats[1].uid, seats[1].uid);
+    assert.equal(state.seats[3].uid, seats[3].uid);
+    assert.notEqual(state.seats[2].uid, seats[2].uid);
+  }
+  assert.equal(room.game.dealer, 0);
+  assert.equal(room.hostUid, host.welcome.uid);
+  assert.equal(previous.prompts.size, 0);
+  host.send({ t: 'newtable' }); await host.wait('error', (m) => m.err.includes('已经开始'));
+  room.game.abort();
+  room.game.roundNo = room.game.totalRounds;
+  room.game.scores = [20, -8, -4, -8];
+  room.broadcastRoom();
+  await guest.wait('room', (m) => m.room.finished);
+  host.send({ t: 'leave' }); await host.wait('left');
+  const transferred = (await guest.wait('room', (m) => m.room.host)).room;
+  assert.equal(transferred.resetScoresOnNewTable, true);
+  assert.deepEqual(transferred.standings, [20, -8, -4, -8], '房主退房后仍保留当前桌的结算');
+  guest.send({ t: 'newtable' });
+  const fresh = (await guest.wait('snapshot', (m) => m.snap.phase === 'dealing')).snap;
+  assert.deepEqual(fresh.scores, [0, 0, 0, 0], '房主主动退房后下一桌重新计分');
+  assert.equal(fresh.roomId, id);
+  assert.equal(room.resetScoresOnNewTable, false);
+});
+
+test('跨桌累计分：断线恢复、会话过期及普通玩家退房保留，房主主动退房后下一桌重新计分', (t) => {
+  for (const scenario of ['reconnect', 'expire', 'guest-leave', 'host-leave']) {
+    const host = fake('甲'), guest = fake('乙');
+    const room = new Room('7001', host, { speed: 100 });
+    t.after(() => room.abort());
+    room.add(guest); room.addBot(); room.addBot();
+    room.config.totalRounds = 1;
+    room.game = game();
+    room.game.phase = 'ended'; room.game.roundNo = 1; room.game.totalRounds = 1;
+    room.game.scores = [12, -7, -3, -2];
+    if (scenario === 'reconnect' || scenario === 'expire') {
+      room.disconnect(host.uid);
+      if (scenario === 'reconnect') room.reconnect(host);
+      else room.remove(host.uid);
+    } else if (scenario === 'guest-leave') room.remove(guest.uid, true);
+    else room.remove(host.uid, true);
+    assert.equal(room.resetScoresOnNewTable, scenario === 'host-leave', scenario);
+    assert.equal(room.newTable(room.hostUid).ok, true, scenario);
+    assert.deepEqual(room.game.scores, scenario === 'host-leave' ? [0, 0, 0, 0] : [12, -7, -3, -2], scenario);
+  }
+});
+
 test('快照特效：四家按视角收到一次；单人 sync 不消费待广播特效', () => {
   const clients = [fake('甲'), fake('乙'), fake('丙'), fake('丁')];
   const room = new Room('6002', clients[0]); clients.slice(1).forEach((c) => room.add(c));

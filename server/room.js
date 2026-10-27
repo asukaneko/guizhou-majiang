@@ -15,6 +15,7 @@ class Room {
     this.seats = [null, null, null, null]; // {uid, name, ws, bot}
     this.config = { mode: 'classic', totalRounds: 4 };
     this.game = null;
+    this.resetScoresOnNewTable = false;
     this.fx = [];
     this.hostUid = host.uid;
     this.created = Date.now();
@@ -37,10 +38,11 @@ class Room {
     return idx;
   }
 
-  remove(uid) {
+  remove(uid, voluntary = false) {
     const idx = this.seatOf(uid);
     if (idx < 0) return false;
     const wasHost = this.hostUid === uid;
+    if (wasHost && voluntary) this.resetScoresOnNewTable = true;
     const seat = this.seats[idx];
     this.seats[idx] = this.game ? {
       uid: `bot:${randomUUID()}`, name: `${seat.name}(代打)`, ws: null, bot: true
@@ -81,6 +83,11 @@ class Room {
   }
 
   isHost(uid) { return this.hostUid === uid; }
+
+  tableFinished() {
+    return !!this.game && this.game.phase === 'ended' &&
+      this.game.roundNo >= (this.game.totalRounds || this.config.totalRounds);
+  }
 
   disconnect(uid) {
     const idx = this.seatOf(uid);
@@ -127,9 +134,11 @@ class Room {
       host: this.isHost(forUid),
       config: { ...this.config },
       running: !!this.game && this.game.phase === 'playing',
+      finished: this.tableFinished(),
+      resetScoresOnNewTable: this.resetScoresOnNewTable,
       full: this.seats.every(Boolean),
       roundNo: this.game ? this.game.roundNo : 0,
-      totalRounds: this.config.totalRounds,
+      totalRounds: this.game ? (this.game.totalRounds || this.config.totalRounds) : this.config.totalRounds,
       standings: this.game ? this.game.scores.slice() : [0, 0, 0, 0],
       seats: this.seats.map((s, i) => ({
         uid: s ? s.uid : null,
@@ -187,22 +196,23 @@ class Room {
 
   /* ---------------- 对局 ---------------- */
 
-  start() {
+  start(newTable = false) {
     if (this.game && ['dealing', 'playing'].includes(this.game.phase)) return { ok: false, err: '对局已经开始' };
-    if (this.game && this.game.roundNo >= this.config.totalRounds) {
-      return { ok: false, err: `已打满约定的 ${this.config.totalRounds} 局` };
+    if (newTable && !this.tableFinished()) return { ok: false, err: '本桌还没打完' };
+    if (!newTable && this.tableFinished()) {
+      return { ok: false, err: `已打满约定的 ${this.game.totalRounds || this.config.totalRounds} 局，请在房间开启新的一桌` };
     }
     const empty = this.seats.findIndex((s) => s === null);
     if (empty >= 0) return { ok: false, err: '还有空位，先加机器人或等玩家加入' };
     if (this.seats.some((s) => !s.bot && s.offline)) return { ok: false, err: '有玩家正在重连，请等待或稍后补位' };
 
-    const prev = this.game;
-    const scores = prev ? prev.scores.slice() : [0, 0, 0, 0];
+    const previousGame = this.game;
+    const prev = newTable ? null : previousGame;
+    const scores = previousGame && !(newTable && this.resetScoresOnNewTable) ? previousGame.scores.slice() : [0, 0, 0, 0];
     const roundNo = prev ? prev.roundNo + 1 : 1;
     const dealer = prev ? (prev.nextDealer != null ? prev.nextDealer : prev.dealer) : 0;
 
     const seats = this.seats.map((s) => ({ type: s.bot || s.offline ? 'bot' : 'human', uid: s.uid, name: s.name, botPlay: !!s.botPlay }));
-    if (prev) prev.abort();
     this.game = new OnlineGame({
       mode: this.config.mode,
       speed: 1.1,
@@ -213,6 +223,8 @@ class Room {
       dealer,
       seats
     });
+    if (newTable) this.resetScoresOnNewTable = false;
+    if (previousGame) previousGame.abort();
     this.fx = [];
     const game = this.game;
     game.on('discard', (d) => this.pushFx({ type: 'discard', p: d.p, tile: d.tile }));
@@ -223,6 +235,7 @@ class Room {
     game.on('message', (text) => this.pushFx({ type: 'msg', text }));
     game.on('state', () => { if (this.game === game) this.broadcastGame(); });
     game.on('roundEnd', () => {
+      if (this.game !== game) return;
       this.broadcastGame();
       this.broadcastRoom();
     });
@@ -243,10 +256,12 @@ class Room {
     if (!this.isHost(uid)) return { ok: false, err: '只有房主能开下一局' };
     if (!this.game) return { ok: false, err: '对局还没开始' };
     if (this.game.phase === 'playing') return { ok: false, err: '这一局还没打完' };
-    if (this.game.roundNo >= this.config.totalRounds) {
-      return { ok: false, err: `已打满约定的 ${this.config.totalRounds} 局` };
-    }
     return this.start();
+  }
+
+  newTable(uid) {
+    if (!this.isHost(uid)) return { ok: false, err: '只有房主能开启新的一桌' };
+    return this.start(true);
   }
 
   action(uid, action) {
@@ -270,14 +285,17 @@ class Room {
 
   setConfig(uid, cfg, broadcast = true) {
     if (!this.isHost(uid)) return { ok: false, err: '只有房主能改规则' };
-    if (this.game && this.game.phase === 'playing') return { ok: false, err: '对局中不能改规则' };
+    if (this.game && ['dealing', 'playing'].includes(this.game.phase)) return { ok: false, err: '对局中不能改规则' };
     if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return { ok: false, err: '规则格式不正确' };
     if (cfg.mode !== undefined && !Object.hasOwn(R.MODES, cfg.mode)) return { ok: false, err: '未知玩法' };
     if (cfg.totalRounds !== undefined && (!Number.isInteger(cfg.totalRounds) || cfg.totalRounds < 1 || cfg.totalRounds > 64)) {
       return { ok: false, err: '局数必须为 1–64 的整数' };
     }
+    const finished = this.tableFinished();
     if (cfg.mode !== undefined) this.config.mode = cfg.mode;
     if (cfg.totalRounds !== undefined) this.config.totalRounds = cfg.totalRounds;
+    // 完桌后修改的是下一桌配置，上一桌的结束状态和约定局数保持不变。
+    if (this.game && !finished) this.game.totalRounds = this.config.totalRounds;
     if (broadcast) this.broadcastRoom();
     return { ok: true };
   }

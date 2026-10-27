@@ -106,9 +106,9 @@ test('网络：旧 socket 的延迟 close/message 不影响新连接；会话先
   net.disconnect(); assert.equal(timers.size, 0);
 });
 
-test('网页脚本集成：大厅入口、联机入桌自动横屏、快照渲染、结算及下一局', () => {
+test('网页脚本集成：联机换局、回房实时刷新、完桌重新配置并开启新桌', () => {
   // DOM 仅用于验证消息与渲染代码能协作；实际视觉布局由设备验收。
-  const elements = new Map(), listeners = new Map(), sockets = [];
+  const elements = new Map(), listeners = new Map(), sockets = [], timeouts = [];
   class Element {
     constructor(id = '') {
       this.id = id; this.innerHTML = ''; this.dataset = {}; this.children = new Map();
@@ -156,7 +156,8 @@ test('网页脚本集成：大厅入口、联机入桌自动横屏、快照渲�
     location: { protocol: 'http:', host: 'localhost:8788' }, WebSocket: Socket,
     innerWidth: 390, innerHeight: 844, matchMedia: () => ({ matches: true }),
     navigator: { userActivation: { isActive: false } }, screen: {},
-    addEventListener() {}, setTimeout: () => 1, setInterval: () => 1, clearTimeout() {}, clearInterval() {}, console });
+    addEventListener() {}, setTimeout: (fn, ms) => { timeouts.push({ fn, ms }); return timeouts.length; },
+    setInterval: () => 1, clearTimeout() {}, clearInterval() {}, console });
   ctx.window = ctx;
   for (const name of ['tiles.js', 'profile.js', 'viewport.js', 'net.js', 'remote-game.js', 'online.js', 'lobby.js', 'ui.js']) script(ctx, name);
   listeners.get('DOMContentLoaded')[0]();
@@ -178,8 +179,11 @@ test('网页脚本集成：大厅入口、联机入桌自动横屏、快照渲�
   g.prompts.set(0, { id: 'prompt1', kind: 'discard', self: g.selfActions(0) });
   const room = { id: '4321', host: true, full: true, running: true, roundNo: 1, totalRounds: 2,
     config: { mode: 'yitong', totalRounds: 2 },
-    seats: g.players.map((p, i) => ({ name: p.name, you: i === 0, bot: i > 0, seat: i })) };
-  receive({ t: 'joined', room });
+    seats: g.players.map((p, i) => ({ uid: `seat${i}`, name: p.name, you: i === 0, bot: i > 0, seat: i })) };
+  receive({ t: 'joined', room: { ...room, running: false, roundNo: 0 } });
+  assert.ok(doc.body.classList.contains('in-online'), '新建或加入等待房间能正常显示');
+  assert.equal(ctx.GZOnline.started, false);
+  receive({ t: 'room', room });
   assert.ok(doc.body.classList.contains('in-game'));
   assert.ok(doc.body.classList.contains('rotate-game'));
   receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [] });
@@ -213,6 +217,57 @@ test('网页脚本集成：大厅入口、联机入桌自动横屏、快照渲�
   assert.equal(ws.sent.at(-1).t, 'next');
   receive({ t: 'room', room: { ...room, roundNo: 2 } });
   assert.ok(elements.get('#overlay').classList.contains('hidden'));
+
+  const finishedRoom = { ...room, running: false, finished: true, roundNo: 2 };
+  receive({ t: 'snapshot', snap: { ...ended, roundNo: 2, roundId: 'last-round' }, fx: [] });
+  receive({ t: 'room', room: finishedRoom });
+  ctx.GZUI.showResult(ctx.__game.result);
+  ctx.GZUI.showOnlineRoom();
+  assert.equal(ctx.GZOnline.started, false, '返回房间清除正在牌桌的标记');
+  assert.ok(doc.body.classList.contains('in-online'));
+  assert.equal(doc.body.classList.contains('rotate-game'), false);
+  const online = elements.get('#online');
+  assert.match(online.innerHTML, /data-act="start" >开启新的一桌/);
+  const onlineClick = (act, uid) => online.events.get('click')({ target: { closest: () => ({ dataset: { act, uid } }) } });
+  onlineClick('removebot', 'seat1');
+  assert.equal(ws.sent.at(-1).t, 'removebot');
+  assert.equal(ws.sent.at(-1).uid, 'seat1');
+  const removedRoom = { ...finishedRoom, full: false, seats: room.seats.map((s, i) => i === 1 ? { ...s, uid: null, name: null, bot: false } : s) };
+  receive({ t: 'room', room: removedRoom });
+  assert.match(online.innerHTML, /等待加入/);
+  assert.doesNotMatch(online.innerHTML, /data-uid="seat1"/);
+  assert.match(online.innerHTML, /data-act="start" disabled/);
+  assert.match(online.innerHTML, /data-act="addbot" >/);
+  assert.ok(doc.body.classList.contains('in-online'), '移除广播保持在房间配置页');
+  for (const { fn, ms } of timeouts) if (ms === 650) fn();
+  assert.ok(elements.get('#overlay').classList.contains('hidden'), '延迟结算不得覆盖房间页');
+  receive({ t: 'joined', resumed: true, room: removedRoom });
+  assert.equal(ctx.GZOnline.started, false, '在房间重连仍停留在配置页');
+
+  elements.set('#ol-mode2', Object.assign(new Element(), { value: 'classic' }));
+  elements.set('#ol-rounds2', Object.assign(new Element(), { value: '1' }));
+  online.events.get('change')({ target: { id: 'ol-mode2' } });
+  assert.deepEqual(JSON.parse(JSON.stringify(ws.sent.at(-1))), { t: 'config', config: { mode: 'classic', totalRounds: 1 } });
+  const configuredRoom = { ...finishedRoom, config: { mode: 'classic', totalRounds: 1 } };
+  receive({ t: 'room', room: configuredRoom });
+  assert.match(online.innerHTML, /data-act="start" >开启新的一桌/);
+  assert.match(online.innerHTML, /累计分数继续保留/);
+  onlineClick('start');
+  assert.equal(ws.sent.at(-1).t, 'newtable');
+  receive({ t: 'room', room: { ...configuredRoom, running: true, finished: false, roundNo: 1, totalRounds: 1 } });
+  assert.ok(ctx.GZOnline.started);
+  assert.ok(doc.body.classList.contains('in-game'));
+  receive({ t: 'snapshot', snap: { ...ended, roundId: 'new-table-round1', roundNo: 1, totalRounds: 1, mode: 'classic', scores: [12, -7, -3, -2], phase: 'playing', result: null }, fx: [] });
+  assert.equal(ctx.__game.mode.id, 'classic');
+  assert.equal(ctx.__game.result, null);
+  assert.deepEqual(Array.from(ctx.__game.scores), [12, -7, -3, -2]);
+  receive({ t: 'snapshot', snap: { ...ended, roundId: 'new-table-round1', totalRounds: 1 }, fx: [] });
+  assert.equal(ctx.GZProfile.summary().games, 3, '新桌第 1 局仍独立记录');
+  const oneRoundRoom = { ...configuredRoom, roundNo: 1, totalRounds: 1 };
+  receive({ t: 'room', room: oneRoundRoom });
+  ctx.GZUI.showResult(ctx.__game.result);
+  receive({ t: 'room', room: { ...oneRoundRoom, running: true, finished: false } });
+  assert.ok(elements.get('#overlay').classList.contains('hidden'), '连续单局桌的局号相同也要收起旧结算');
   ctx.GZUI.showLobby();
   assert.equal(doc.body.classList.contains('rotate-game'), false);
   ctx.__ui.enterMode('classic');

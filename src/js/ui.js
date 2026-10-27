@@ -665,10 +665,10 @@
       const next = el.overlay.querySelector('[data-act="next"]');
       const room = window.GZOnline.room;
       if (room) {
-        const finished = game.phase === 'ended' && game.roundNo >= room.totalRounds;
+        const finished = room.finished ?? (game.phase === 'ended' && game.roundNo >= room.totalRounds);
         const canNext = !finished && room.host && game.phase === 'ended';
         topNext.disabled = !canNext;
-        topNext.title = finished ? '本桌已结束' : !room.host ? '等待房主开下一局' : game.phase !== 'ended' ? '本局结束后可开始下一局' : '开始下一局';
+        topNext.title = finished ? '本桌已结束，返回房间可配置新桌' : !room.host ? '等待房主开下一局' : game.phase !== 'ended' ? '本局结束后可开始下一局' : '开始下一局';
         if (next) {
           next.disabled = !canNext;
           next.textContent = finished ? '本桌已结束' : room.host ? '开始下一局' : '等待房主开局';
@@ -687,7 +687,7 @@
       const room = window.GZOnline.room;
       if (!room || !room.host) { toast('等房主开下一局'); return; }
       if (game.phase !== 'ended') { toast('本局结束后可开始下一局'); return; }
-      if (game.roundNo >= room.totalRounds) { toast('本桌已结束'); return; }
+      if (room.finished ?? (game.roundNo >= room.totalRounds)) { toast('返回房间可配置并开启新桌'); return; }
       window.GZNet.send({ t: 'next' });
       return;
     }
@@ -997,11 +997,13 @@
       game.on('roundEnd', (res) => {
         if (game !== remote) return;
         const round = remote.roundNo;
+        const roundId = remote.state?.roundId;
         try {
           if (!res.draw) Sound.hu();
           recordRound(res);
           setTimeout(() => {
-            if (game !== remote || remote.phase !== 'ended' || remote.roundNo !== round) return;
+            if (game !== remote || remote.phase !== 'ended' || remote.roundNo !== round ||
+                remote.state?.roundId !== roundId || !GZOnline.started || !document.body.classList.contains('in-game')) return;
             try { showResult(res); } catch (err) { console.error('[remote] showResult', err); toast('结算渲染异常'); }
           }, 650);
         } catch (err) { console.error('[remote] roundEnd', err); }
@@ -1172,7 +1174,7 @@
 
     GZOnline.init({ onError: toast, onEnterGame: enterOnlineGame });
     GZLobby.init({ onEnter: enterMode, onRules: showRules, onRender: fit, onOnline: showOnline });
-    window.__ui = { enterMode, showLobby, showOnline, showRules, showResult, hideResult, fit };
+    window.__ui = { enterMode, showLobby, showOnline, showOnlineRoom, showRules, showResult, hideResult, fit };
     window.GZUI = window.__ui;   // 供 online.js / lobby.js 回调返回大厅、联机面板
 
     // 联机消息只在启动时挂一次；onNetMsg 自己判断当前牌桌
