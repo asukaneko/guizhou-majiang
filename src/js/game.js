@@ -561,14 +561,19 @@
       return { p: rest[0].p, type: rest[0].type };
     }
 
-    /** 补杠时看看有没人抢杠胡 */
+    /** 补杠时看看有没人抢杠胡（抢杠同样受吃炮门槛限制，低于 14 分不能抢） */
     async resolveRobKong(kongger, tile) {
       const claims = [];
       for (let k = 1; k < 4; k++) {
         const p = (kongger + k) % 4;
         const pl = this.players[p];
         const info = R.winInfo(pl.hand.concat(tile), pl.melds, this.mode);
-        if (info) claims.push({ p, k, info });
+        if (!info) continue;
+        if (!R.canChiPao(info)) {
+          if (pl.isHuman) this.emit('blocked', { info, tile, rob: true });
+          continue;
+        }
+        claims.push({ p, k, info });
       }
       if (!claims.length) return [];
 

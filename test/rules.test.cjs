@@ -411,31 +411,44 @@ test('天胡 / 地胡 的判定条件', () => {
   assert.equal(d.isDiHu(1, true), false);
 });
 
-test('抢杠胡：杠不成立，补杠者向胡家付一份', async () => {
-  const g = new Game({ speed: 90, dealer: 0 });
-  g.phase = 'playing';
-  g.wall = [];
-  const kong = c(W, 5);
-  // 杠家（下家）：碰过五万，手里还有一张五万
-  g.players[1].hand = handOf([
-    [W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [W, 5]
-  ]);
-  g.players[1].melds = [{ type: 'peng', tile: kong, tiles: [kong, kong, kong], from: 0 }];
-  // 对家：听五万
-  g.players[2].hand = handOf([
+test('抢杠胡：杠不成立，补杠者向胡家付一份；平胡抢不了杠，够门槛的牌型才能抢', async () => {
+  const setup = (robber) => {
+    const g = new Game({ speed: 90, dealer: 0 });
+    g.phase = 'playing';
+    g.wall = [];
+    const kong = c(W, 5);
+    // 杠家（下家）：碰过五万，手里还有一张五万
+    g.players[1].hand = handOf([
+      [W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [W, 5]
+    ]);
+    g.players[1].melds = [{ type: 'peng', tile: kong, tiles: [kong, kong, kong], from: 0 }];
+    if (robber) g.players[2].hand = robber;
+    return { g, kong };
+  };
+
+  // 平胡（听五万）：吃炮门槛 14 分没过，抢不了杠
+  const plain = setup(handOf([
     [W, 1], [W, 2], [W, 3], [W, 4], [W, 6], [TI, 1], [TI, 2], [TI, 3],
     [P, 1], [P, 2], [P, 3], [P, 8], [P, 8]
-  ]);
+  ]));
+  assert.equal(await plain.g.doKong(1, 'bugang', plain.kong), true, '没人够门槛，补杠正常成立');
+  assert.equal(plain.g.players[1].melds[0].type, 'gang');
+  plain.g.abort();
 
+  // 清一色（同样听五万，24 分）：可以抢杠
+  const { g, kong } = setup(handOf([
+    [W, 1], [W, 2], [W, 3], [W, 4], [W, 6], [W, 7], [W, 8], [W, 9],
+    [W, 1], [W, 2], [W, 3], [W, 7], [W, 7]
+  ]));
   const ok = await g.doKong(1, 'bugang', kong);
   assert.equal(ok, false, '被抢杠时杠不成立');
   assert.equal(g.players[1].melds[0].type, 'peng');
   assert.equal(g.result.robKong, true);
   assert.equal(g.result.winner, 2);
-  // 平胡 4 + 抢杠 20 = 24，补杠者只向该胡家付一份。
-  assert.equal(g.result.winners[0].points, 24);
-  assert.equal(g.result.winDeltas[1], -24);
-  assert.equal(g.result.winDeltas[2], 24);
+  // 清一色 24 + 抢杠 20 = 44，补杠者只向该胡家付一份。
+  assert.equal(g.result.winners[0].points, 44);
+  assert.equal(g.result.winDeltas[1], -44);
+  assert.equal(g.result.winDeltas[2], 44);
   assert.equal(g.kongLog.length, 0, '抢杠时豆不成立');
 });
 

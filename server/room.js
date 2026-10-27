@@ -299,7 +299,7 @@ class Room {
     game.on('call', (c) => this.pushFx({ type: 'call', p: c.p, text: c.text, tile: c.tile }));
     game.on('chong', (e) => this.pushFx({ type: 'chong', p: e.p, points: e.points }));
     game.on('ting', (i) => this.pushFx({ type: 'ting', p: i.p, tianTing: !!i.tianTing }));
-    game.on('blocked', () => this.pushFx({ type: 'blocked' }));
+    game.on('blocked', (b) => this.pushFx({ type: 'blocked', rob: !!(b && b.rob) }));
     game.on('message', (text) => this.pushFx({ type: 'msg', text }));
     game.on('state', () => { if (this.game === game) this.broadcastGame(); });
     game.on('roundEnd', () => {

@@ -543,6 +543,13 @@
     setTimeout(() => { div.classList.add('out'); setTimeout(() => div.remove(), 320); }, ms || 2200);
   }
 
+  /** 吃炮门槛挡下时的提示：抢杠与普通吃炮分开说 */
+  function blockedText(rob) {
+    return rob
+      ? `抢杠也要过吃炮门槛：牌型需 ${R.CHI_PAO_MIN} 分以上才能抢`
+      : '当前牌型未满足吃炮门槛，可继续摸牌或自摸';
+  }
+
   const CALL_POS = {
     0: 'left:50%; bottom:246px; transform:translateX(-50%);',
     1: 'right:210px; top:300px;',
@@ -839,7 +846,7 @@
 
   const RULES_COMMON = `
     <h3>吃炮门槛</h3>
-    <p>普通吃炮要求基础牌型分至少 ${R.CHI_PAO_MIN} 分；杠牌、报听及硬胡加分不改变此门槛。抢杠胡不受此限。</p>
+    <p>普通吃炮要求基础牌型分至少 ${R.CHI_PAO_MIN} 分；杠牌（豆）、报听及硬胡加分都不改变这个门槛。<b>抢杠胡同样要过门槛</b>：补杠那张牌只能被 ${R.CHI_PAO_MIN} 分以上的牌型抢走，平胡抢不了杠。</p>
 
     <h3>豆（杠）</h3>
     <ul>
@@ -1220,7 +1227,7 @@
       } else if (f.type === 'blocked') {
         if (!blockedShown) {
           blockedShown = true;
-          toast('当前牌型未满足吃炮门槛，可继续摸牌或自摸');
+          toast(blockedText(f.rob));
         }
       } else if (f.type === 'msg') {
         if (f.text) toast(f.text, ANNOUNCE_MS);
@@ -1295,10 +1302,10 @@
       renderCenter();
       toast(text, ANNOUNCE_MS);
     });
-    on('blocked', () => {
+    on('blocked', (info) => {
       if (blockedShown) return;
       blockedShown = true;
-      toast('当前牌型未满足吃炮门槛，可继续摸牌或自摸');
+      toast(blockedText(info && info.rob));
     });
     on('ting', () => {
       Sound.tone(1046, 0.18, 'sine', 0.1);

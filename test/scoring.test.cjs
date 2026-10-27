@@ -69,15 +69,22 @@ test('胡牌附加：报听20、天听40、天胡60、地胡30、热炮20，天�
   assert.equal(result.winners[0].points, 34); assert.deepEqual(result.winDeltas, [34,-34,0,0]);
 });
 
-test('抢杠多响：平胡仍可抢杠，补杠者分别向两位胡家付24和44，补杠不收豆分', async () => {
+test('抢杠多响：抢杠同样看吃炮门槛，平胡抢不了、清一色能抢，补杠不收豆分', async () => {
   const g = make();
+  // 1 号平胡（听 4）：低于 14 分，抢不了杠
   g.players[1].hand = [0,1,2,3,5,9,10,11,18,19,20,22,22];
+  // 2 号清一色（也听 4）：24 分，够门槛，可以抢
   g.players[2].hand = [0,1,2,3,5,6,7,8,0,1,2,8,8];
   g.players[3].hand = [4]; g.players[3].melds = [{ type:'peng', tile:4, tiles:[4,4,4] }];
-  assert.equal(R.canChiPao(R.winInfo(g.players[1].hand.concat(4), [], 'classic')), false);
+  const plainInfo = R.winInfo(g.players[1].hand.concat(4), [], 'classic');
+  assert.equal(plainInfo.name, '平胡');
+  assert.equal(R.canChiPao(plainInfo), false);
+  assert.equal(R.canChiPao(R.winInfo(g.players[2].hand.concat(4), [], 'classic')), true);
   assert.equal(await g.doKong(3, 'bugang', 4), false);
-  assert.deepEqual(g.result.winners.map((w) => w.points), [24,44]);
-  assert.deepEqual(g.result.winDeltas, [0,24,44,-68]);
+  // 只有清一色那家抢到：24 + 抢杠 20 = 44，补杠者(3 号)付一份，平胡那家不参与。
+  assert.deepEqual(g.result.winners.map((w) => w.p), [2]);
+  assert.deepEqual(g.result.winners.map((w) => w.points), [44]);
+  assert.deepEqual(g.result.winDeltas, [0,0,44,-44]);
   assert.equal(g.kongLog.length, 0); assert.equal(g.players[3].melds[0].type, 'peng');
   zero(g.result.deltas);
 });
