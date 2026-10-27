@@ -385,9 +385,11 @@
   }
 
   /* ---------------- 吃炮通行证 ---------------- */
-  // 吃炮门槛按基础牌型分判断，不把报听、硬胡等附加分计入。
+  // 门槛按基础牌型分判断，不把报听、硬胡等附加分计入。
+  // 例外：手里有豆（杠）就是通行证，任意牌型都能点炮 / 抢杠——平胡有豆也能胡。
   function canChiPao(info) {
     if (!info) return false;
+    if ((info.kongs || 0) > 0) return true;
     return info.points >= CHI_PAO_MIN;
   }
 

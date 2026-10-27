@@ -66,13 +66,15 @@ test('听牌判定', () => {
   assert.equal(R.tingValue(h, []).points, 4);
 });
 
-test('吃炮通行证', () => {
+test('吃炮通行证：没豆要 14 分，有豆（杠）任意牌型都能点炮', () => {
   const ping = { points: 4, kongs: 0 };
   const duizi = { points: 14, kongs: 0 };
   const withKong = { points: 4, kongs: 1 };
-  assert.equal(R.canChiPao(ping), false);
+  assert.equal(R.canChiPao(ping), false, '没豆的平胡不能点炮');
   assert.equal(R.canChiPao(duizi), true);
-  assert.equal(R.canChiPao(withKong), false);
+  assert.equal(R.canChiPao(withKong), true, '有豆就是通行证');
+  assert.equal(R.canChiPao({ points: 4, kongs: 2 }), true);
+  assert.equal(R.canChiPao(null), false);
 });
 
 test('鸡：幺鸡 / 乌骨鸡 / 翻牌鸡 / 金鸡', () => {
@@ -411,8 +413,8 @@ test('天胡 / 地胡 的判定条件', () => {
   assert.equal(d.isDiHu(1, true), false);
 });
 
-test('抢杠胡：杠不成立，补杠者向胡家付一份；平胡抢不了杠，够门槛的牌型才能抢', async () => {
-  const setup = (robber) => {
+test('抢杠胡：杠不成立，补杠者向胡家付一份；没豆平胡抢不了，有豆平胡和够分牌型都能抢', async () => {
+  const setup = (robber, robberMelds) => {
     const g = new Game({ speed: 90, dealer: 0 });
     g.phase = 'playing';
     g.wall = [];
@@ -423,19 +425,33 @@ test('抢杠胡：杠不成立，补杠者向胡家付一份；平胡抢不了�
     ]);
     g.players[1].melds = [{ type: 'peng', tile: kong, tiles: [kong, kong, kong], from: 0 }];
     if (robber) g.players[2].hand = robber;
+    if (robberMelds) g.players[2].melds = robberMelds;
     return { g, kong };
   };
 
-  // 平胡（听五万）：吃炮门槛 14 分没过，抢不了杠
+  // 没豆的平胡（听五万）：过不了门槛，抢不了杠
   const plain = setup(handOf([
     [W, 1], [W, 2], [W, 3], [W, 4], [W, 6], [TI, 1], [TI, 2], [TI, 3],
     [P, 1], [P, 2], [P, 3], [P, 8], [P, 8]
   ]));
-  assert.equal(await plain.g.doKong(1, 'bugang', plain.kong), true, '没人够门槛，补杠正常成立');
+  assert.equal(await plain.g.doKong(1, 'bugang', plain.kong), true, '没人够条件，补杠正常成立');
   assert.equal(plain.g.players[1].melds[0].type, 'gang');
   plain.g.abort();
 
-  // 清一色（同样听五万，24 分）：可以抢杠
+  // 有豆的平胡（同样听五万）：豆就是通行证，可以抢
+  const kongMeld = [{ type: 'gang', tile: c(P, 9), tiles: [c(P, 9), c(P, 9), c(P, 9), c(P, 9)], from: 0 }];
+  const konged = setup(handOf([[W, 1], [W, 2], [W, 3], [W, 4], [W, 6], [W, 7], [W, 8], [W, 9], [P, 8], [P, 8]]), kongMeld);
+  const kongedInfo = R.winInfo(konged.g.players[2].hand.concat(konged.kong), kongMeld, 'classic');
+  assert.equal(kongedInfo.name, '平胡');
+  assert.equal(R.canChiPao(kongedInfo), true, '有豆的平胡过门槛');
+  assert.equal(await konged.g.doKong(1, 'bugang', konged.kong), false, '有豆的平胡能抢杠');
+  assert.equal(konged.g.result.robKong, true);
+  assert.equal(konged.g.result.winner, 2);
+  // 平胡 4 + 抢杠 20 = 24
+  assert.equal(konged.g.result.winners[0].points, 24);
+  konged.g.abort();
+
+  // 清一色（同样听五万，24 分）：没豆也能抢杠
   const { g, kong } = setup(handOf([
     [W, 1], [W, 2], [W, 3], [W, 4], [W, 6], [W, 7], [W, 8], [W, 9],
     [W, 1], [W, 2], [W, 3], [W, 7], [W, 7]

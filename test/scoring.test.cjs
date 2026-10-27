@@ -170,11 +170,31 @@ test('杠与责任鸡：杠每份4、责任鸡2分，操作时只记账不扣分
   g.abort();
 });
 
-test('吃炮14分门槛：包括已杠平胡；报听、硬胡加分不越过门槛，14分边界可吃炮', () => {
+test('吃炮门槛：没豆要 14 分边界，有豆是通行证（平胡也能点炮）；报听、硬胡加分不算', () => {
   assert.equal(R.canChiPao({ points:13, kongs:0 }), false);
   assert.equal(R.canChiPao({ points:14, kongs:0 }), true);
-  assert.equal(R.canChiPao({ points:4, kongs:2, hardBonus:5 }), false);
+  assert.equal(R.canChiPao({ points:4, kongs:0 }), false, '没豆的平胡不能点炮');
+  assert.equal(R.canChiPao({ points:4, kongs:1 }), true, '有豆的平胡可以点炮');
+  assert.equal(R.canChiPao({ points:4, kongs:2, hardBonus:5 }), true, '豆按杠数算，硬胡加成不影响');
   assert.equal(R.canChiPao(null), false);
+});
+
+test('有豆的平胡：普通点炮能胡，没豆的平胡胡不了', () => {
+  // 有 1 个豆（杠）的平胡：手上 10 张，等 22（三万）
+  const kongInfo = R.winInfo(
+    [0,1,2,3,4,5,9,10,11,22].concat(22),
+    [{ type:'gang', tile:26, tiles:[26,26,26,26], from:0 }],
+    'classic'
+  );
+  assert.equal(kongInfo.name, '平胡');
+  assert.equal(kongInfo.kongs, 1);
+  assert.equal(R.canChiPao(kongInfo), true, '有豆的平胡过门槛，可以点炮');
+
+  // 没豆的平胡：手上 13 张，同样等 22
+  const plainInfo = R.winInfo([0,1,2,3,4,5,9,10,11,18,19,20,22].concat(22), [], 'classic');
+  assert.equal(plainInfo.name, '平胡');
+  assert.equal(plainInfo.kongs, 0);
+  assert.equal(R.canChiPao(plainInfo), false, '没豆的平胡不过门槛');
 });
 
 test('黄庄：按最高牌型分查叫，清三龙七对104分，忽略报听硬胡加分', () => {
