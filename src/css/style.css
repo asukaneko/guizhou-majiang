@@ -1386,19 +1386,13 @@ body.in-online #online { display: grid; }
 .mode-card.yitong .mc-feats li::before { background: rgba(127, 208, 176, 0.85); }
 
 .mc-foot { position: relative; margin-top: auto; padding-top: 12px; display: flex; align-items: center; gap: 12px; }
-.mc-stat { flex: 1; min-width: 0; font-size: 10px; color: #65806f; }
-.mc-stat span { display: block; letter-spacing: 1.5px; }
-.mc-stat b {
-  display: block;
-  margin-top: 2px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #cfe3d8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.mc-stat .ol-stat-num { color: #a9d6c2; }
+.mc-stat { flex: 1; min-width: 0; font-size: 10px; color: #8ca999; }
+.mc-stat > span { display: block; margin-bottom: 4px; letter-spacing: 1px; }
+.mc-stat-value { min-width: 0; color: #d7e6dd; font-size: 12px; font-weight: 650; line-height: 1.25; }
+.ol-stat-line { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; letter-spacing: 0 !important; }
+.ol-stat-line strong { color: #a9d6c2; font-size: 14px; font-variant-numeric: tabular-nums; }
+.ol-stat-line i { padding: 0 2px; color: #587366; font-style: normal; }
+.ol-stat-idle { color: #9fb6aa; font-size: 11px; font-weight: 500; letter-spacing: 0 !important; }
 .mc-play {
   flex: 0 0 auto;
   height: 34px;
@@ -1790,7 +1784,9 @@ body.chat-portrait #chat-room, body.chat-portrait.in-game #chat-room { display: 
   .mode-card.online .mc-feats { grid-template-columns: 1fr; }
   .mc-foot { gap: 8px; }
   .mc-play { padding: 0 12px; letter-spacing: 0; }
-  .mc-stat b { white-space: normal; }
+  .mc-stat-value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ol-stat-line { gap: 3px; font-size: 11px; }
+  .ol-stat-line strong { font-size: 13px; }
   #overlay { inset: 52px 0 0; padding: 8px; }
   .panel-actions .btn-primary, .panel-actions .btn-ghost { padding: 0 12px; }
 }

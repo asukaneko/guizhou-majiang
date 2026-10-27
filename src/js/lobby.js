@@ -185,10 +185,9 @@
   }
 
   function onlineStatHtml() {
-    if (!serverStats) return '分享房号，一起开桌';
+    if (!serverStats) return '<span class="ol-stat-idle">分享房号，一起开桌</span>';
     const { online, rooms } = serverStats;
-    if (!online) return '当前服务器暂无在线玩家';
-    return `当前在线 <b class="ol-stat-num">${online}</b> 人 · ${rooms} 间房间`;
+    return `<span class="ol-stat-line"><span>在线</span><strong>${online}</strong><span>人</span><i>·</i><span>房间</span><strong>${rooms}</strong></span>`;
   }
 
   function onlineCardHtml() {
@@ -212,7 +211,7 @@
         <li>服务端跑规则，各家只看自己的牌</li>
       </ul>
       <div class="mc-foot">
-        <div class="mc-stat"><span>网页联机</span><b id="ol-server-stats">${onlineStatHtml()}</b></div>
+        <div class="mc-stat"><span>实时状态</span><div class="mc-stat-value" id="ol-server-stats">${onlineStatHtml()}</div></div>
         <button class="mc-play" data-act="online">去联机</button>
       </div>
     </article>`;
