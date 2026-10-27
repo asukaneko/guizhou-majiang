@@ -459,7 +459,6 @@
       }
       const pl = this.players[p];
       let payers;
-      const deltas = [0, 0, 0, 0];
 
       if (type === 'angang') {
         pl.hand = removeTiles(pl.hand, tile, 4);
@@ -480,10 +479,8 @@
       pl.said = type === 'angang' ? '暗杠' : type === 'bugang' ? '补杠' : '明杠';
       this.turn = p;
 
-      for (const j of payers) { deltas[j] -= KONG_POINT; deltas[p] += KONG_POINT; }
-      this.applyDeltas(deltas);
-      this.kongLog.push({ p, type, tile, deltas, payers });
-      this.note(`${pl.name} ${pl.said}${type === 'angang' ? '' : ' ' + R.tileName(tile)}（${payers.map((i) => this.players[i].name).join('、')}各付 ${KONG_POINT}）`);
+      this.kongLog.push({ p, type, tile, points: KONG_POINT, payers, deltas: [0, 0, 0, 0], settled: false, voided: false });
+      this.note(`${pl.name} ${pl.said}${type === 'angang' ? '' : ' ' + R.tileName(tile)}（每份 ${KONG_POINT} 分，胡牌时按听牌状态结算）`);
       if (type === 'minggang') this.settleResponsibility(p, tile, from);
       this.lastKongBy = p; // 杠后打出的牌若被胡 → 热炮
       this.emit('call', { p, text: pl.said, tile });
@@ -493,18 +490,15 @@
     }
 
     /**
-     * 冲锋鸡被别人碰 / 杠走，打牌的人向拿牌者付责任鸡分。
+     * 冲锋鸡被碰 / 杠走，记录拿牌者的责任鸡，胡牌时按听牌状态结算。
      */
     settleResponsibility(taker, tile, from) {
       const fc = this.firstChicken;
       if (!fc || fc.taken || fc.p !== from || fc.tile !== tile) return false;
       fc.taken = true;
-      const deltas = [0, 0, 0, 0];
-      deltas[from] -= R.RESPONSIBILITY_POINT;
-      deltas[taker] += R.RESPONSIBILITY_POINT;
-      this.applyDeltas(deltas);
-      this.penaltyLog.push({ kind: '责任鸡', p: from, to: taker, tile, points: R.RESPONSIBILITY_POINT, deltas });
-      this.note(`责任鸡：${this.players[from].name} 的冲锋鸡被 ${this.players[taker].name} 拿走，赔 ${R.RESPONSIBILITY_POINT} 分`);
+      this.penaltyLog.push({ kind: '责任鸡', p: from, to: taker, tile, points: R.RESPONSIBILITY_POINT,
+        deltas: [0, 0, 0, 0], settled: false, voided: false });
+      this.note(`责任鸡：${this.players[taker].name} 拿走 ${this.players[from].name} 的冲锋鸡，记 ${R.RESPONSIBILITY_POINT} 分，胡牌时结算`);
       return true;
     }
 
@@ -698,6 +692,27 @@
 
     /* ---------------- 结算 ---------------- */
 
+    /** 胡牌时按听牌状态结算；传 null 表示黄庄，所有待结杠和责任鸡作废。 */
+    settleDeferred(isTing) {
+      const kongDeltas = [0, 0, 0, 0], responsibilityDeltas = [0, 0, 0, 0];
+      const settle = (entry, owner, payers, points, total) => {
+        if (entry.settled) return;
+        const deltas = [0, 0, 0, 0];
+        const move = (from, to) => { deltas[from] -= points; deltas[to] += points; };
+        if (isTing) {
+          if (isTing[owner]) for (const from of payers) move(from, owner);
+          else for (let to = 0; to < 4; to++) if (isTing[to]) move(owner, to);
+        }
+        Object.assign(entry, { deltas, settled: true, voided: !isTing, reversed: !!isTing && !isTing[owner] });
+        for (let i = 0; i < 4; i++) total[i] += deltas[i];
+      };
+      for (const k of this.kongLog) settle(k, k.p, k.payers, k.points, kongDeltas);
+      for (const k of this.penaltyLog) if (k.kind === '责任鸡') settle(k, k.to, [k.p], k.points, responsibilityDeltas);
+      this.applyDeltas(kongDeltas);
+      this.applyDeltas(responsibilityDeltas);
+      return { kongDeltas, responsibilityDeltas };
+    }
+
     settleWin(winners, opts) {
       if (this.phase === 'ended') return;
       opts = opts || {};
@@ -757,7 +772,9 @@
       const chickens = R.chickenSet(flip, this.mode);
       const winnerSeats = results.map((r) => r.p);
       const isTing = this.players.map((q, i) =>
-        winnerSeats.indexOf(i) >= 0 || R.tenpaiTiles(q.hand, q.melds, this.mode).length > 0);
+        winnerSeats.indexOf(i) >= 0 || R.tenpaiTiles(opts.robKong && opts.from === i
+          ? removeTiles(q.hand, results[0].winTile, 1) : q.hand, q.melds, this.mode).length > 0);
+      const { kongDeltas, responsibilityDeltas } = this.settleDeferred(isTing);
       const charge = this.firstChicken && !this.firstChicken.taken ? this.firstChicken : null;
       const chickenCount = this.players.map((q, i) => {
         let n = R.chickenPoints(q.hand, q.melds, q.discards, chickens);
@@ -772,13 +789,13 @@
         if (!isTing[i] || !chickenCount[i]) continue;
         for (let j = 0; j < 4; j++) if (j !== i) move(j, i, chickenCount[i]);
       }
-      // 包鸡：没叫牌的人，自己手里的鸡反过来赔给每个胡牌的人
+      // 未听牌者把自己的鸡分反赔给所有听牌者（包括未胡牌的听牌者）。
       const baoji = [];
       for (let i = 0; i < 4; i++) {
         if (isTing[i] || !chickenCount[i]) continue;
-        for (const r of results) {
-          move(i, r.p, chickenCount[i]);
-          baoji.push({ p: i, to: r.p, points: chickenCount[i] });
+        for (let to = 0; to < 4; to++) if (isTing[to]) {
+          move(i, to, chickenCount[i]);
+          baoji.push({ p: i, to, points: chickenCount[i] });
         }
       }
       this.applyDeltas(chickenDeltas);
@@ -799,6 +816,8 @@
         points: first.points,
         extra: first.extra,
         winDeltas,
+        kongDeltas,
+        responsibilityDeltas,
         flip,
         chickens,
         chickenCount,
@@ -837,10 +856,13 @@
         }
       }
       this.applyDeltas(deltas);
+      const { kongDeltas, responsibilityDeltas } = this.settleDeferred(null);
       this.result = {
         draw: true,
         mode: this.mode.id,
         ting,
+        kongDeltas,
+        responsibilityDeltas,
         deltas: this.roundDeltas.slice(),
         scores: this.scores.slice(),
         kongLog: this.kongLog.slice(),

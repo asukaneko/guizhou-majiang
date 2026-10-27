@@ -1,7 +1,7 @@
 /* 按座位下发的对局快照。
  *
  * 关键点：客户端 UI 永远把「你」当作 0 号位，所以序列化时把整桌按
- * 观战者旋转一圈；手牌、暗杠牌面只发给本人，其余座位只发张数。
+ * 观战者旋转一圈；对局中手牌、暗杠只发给本人，本局结算后公开四家牌面。
  */
 'use strict';
 
@@ -31,13 +31,18 @@ function penaltyView(list, forSeat) {
     points: k.points,
     seq: k.seq,
     label: k.label,
+    settled: k.settled,
+    voided: k.voided,
+    reversed: k.reversed,
     deltas: rotateArray(k.deltas, forSeat)
   }));
 }
 
 function kongView(list, forSeat) {
   return (list || []).map((k) => ({
-    p: rotateSeat(k.p, forSeat), type: k.type, tile: k.tile, deltas: rotateArray(k.deltas, forSeat)
+    p: rotateSeat(k.p, forSeat), type: k.type, tile: k.tile, points: k.points,
+    payers: (k.payers || []).map((p) => rotateSeat(p, forSeat)), settled: k.settled, voided: k.voided, reversed: k.reversed,
+    deltas: rotateArray(k.deltas, forSeat)
   }));
 }
 
@@ -49,6 +54,8 @@ function publicResult(game, forSeat) {
     mode: res.mode,
     dealer: rotateSeat(game.dealer, forSeat)
   };
+  out.kongDeltas = rotateArray(res.kongDeltas || [0, 0, 0, 0], forSeat);
+  out.responsibilityDeltas = rotateArray(res.responsibilityDeltas || [0, 0, 0, 0], forSeat);
   if (res.draw) {
     out.ting = rotateArray(res.ting, forSeat).map((t) => ({
       tiles: t.tiles.slice(), points: t.points
@@ -103,6 +110,7 @@ function publicResult(game, forSeat) {
  * @param {number} forSeat 服务器侧真实座位号
  */
 function snapshot(game, forSeat) {
+  const reveal = game.phase === 'ended' && !!game.result;
   const players = game.players.map((p, i) => {
     const mine = i === forSeat;
     return {
@@ -111,9 +119,9 @@ function snapshot(game, forSeat) {
       isHuman: !!p.isHuman,
       botPlay: !!p.botPlay,
       isBot: !p.isHuman,
-      hand: mine ? p.hand.slice() : [],
+      hand: mine || reveal ? p.hand.slice() : [],
       handCount: p.hand.length,
-      melds: p.melds.map((m) => meldView(m, mine, forSeat)),
+      melds: p.melds.map((m) => meldView(m, mine || reveal, forSeat)),
       discards: p.discards.slice(),
       discardCount: p.discardCount,
       said: p.said,

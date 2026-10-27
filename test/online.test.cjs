@@ -88,6 +88,30 @@ test('快照：各座位看到的都是自己坐 0 号位，他人手牌与暗�
   assert.equal(own.players[0].melds.find((m) => m.type === 'angang').tiles.length, 4);
 });
 
+test('结算看牌：胡牌及黄庄后公开四家手牌和暗杠；下一局或仅中止时继续隐藏', () => {
+  for (const draw of [true,false]) {
+    const g = new OnlineGame({ dealer:0, mode:'classic' });
+    g.phase = 'playing';
+    g.players.forEach((p) => { p.hand = [0,1,2,3,4,5,6,7,8,9,10,11,22]; });
+    g.players[2].hand = [3,4,5,12,13,14,18,19,20,22];
+    g.players[2].melds = [{ type:'angang', tile:26, tiles:[26,26,26,26] }];
+    if (draw) g.settleDraw();
+    else { g.players[0].hand.push(22); g.settleWin([{ p:0, winTile:22 }], { selfDraw:true }); }
+    for (let seat = 0; seat < 4; seat++) {
+      const snap = snapshot(g, seat);
+      snap.players.forEach((p) => assert.deepEqual(p.hand, g.players[(p.id + seat) % 4].hand));
+      const kongger = snap.players.find((p) => p.melds.length);
+      assert.deepEqual(kongger.melds[0].tiles, [26,26,26,26]);
+      assert.equal(kongger.melds[0].tile, 26);
+    }
+    g.phase = 'playing'; g.result = null;
+    assert.ok(snapshot(g, 0).players.slice(1).every((p) => p.hand.length === 0));
+    assert.deepEqual(snapshot(g, 0).players[2].melds[0].tiles, []);
+    g.abort();
+    assert.ok(snapshot(g, 0).players.slice(1).every((p) => p.hand.length === 0), '没有结算结果的中止不公开手牌');
+  }
+});
+
 test('联机整局：两个真人 + 两机器人，提示、零和、一局接一局', { timeout: 300000 }, async () => {
   const room = new Room('6002', makeClient('房主'));
   room.add(makeClient('乙'));

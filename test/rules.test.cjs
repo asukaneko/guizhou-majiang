@@ -450,7 +450,7 @@ test('冲锋鸡：本局第一张打出的幺鸡算双倍', () => {
   assert.equal(res.charge.p, 3);
 });
 
-test('责任鸡：冲锋鸡被碰走，打者付3分', () => {
+test('责任鸡：冲锋鸡被碰走只记2分，胡牌时再结算', () => {
   const g = new Game({ dealer: 0 });
   g.phase = 'playing';
   g.players[0].hand = handOf([
@@ -463,26 +463,30 @@ test('责任鸡：冲锋鸡被碰走，打者付3分', () => {
   const before = g.scores.slice();
   g.doPeng(1, c(TI, 1), 0);
   assert.equal(g.firstChicken.taken, true);
-  assert.equal(g.scores[0], before[0] - 3, '打冲锋鸡的人赔 3');
-  assert.equal(g.scores[1], before[1] + 3);
+  assert.deepEqual(g.scores, before, '碰牌时不改变总分');
   assert.equal(g.penaltyLog.length, 1);
   assert.equal(g.penaltyLog[0].kind, '责任鸡');
+  assert.equal(g.penaltyLog[0].points, 2);
+  assert.equal(g.penaltyLog[0].settled, false);
+  assert.deepEqual(g.penaltyLog[0].deltas, [0,0,0,0]);
 });
 
-test('包鸡：没叫牌的人，鸡反过来赔给胡牌的人', () => {
+test('包鸡：未听者向所有听牌者赔自己的鸡，未胡的听牌者也收分', () => {
   const g = new Game({ dealer: 0 });
   g.phase = 'playing';
   g.wall = [];
   // 玩家 1 胡牌；玩家 2 叫牌（听牌）；玩家 3 没叫，手里 2 张八筒 = 4 分
   g.players[1].hand = WIN14();
-  g.players[2].hand = handOf([[W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [P, 5], [P, 5], [W, 7], [W, 9]]);
+  g.players[2].hand = WIN14().slice(0, -1);
   g.players[3].hand = handOf([[W, 4], [W, 6], [W, 8], [TI, 4], [TI, 6], [TI, 8], [P, 8], [P, 8], [P, 4], [P, 6], [W, 2], [TI, 2], [P, 2]]);
 
   const res = g.settleWin([{ p: 1, winTile: null }], { selfDraw: true });
   assert.equal(res.isTing[3], false);
   assert.equal(res.chickenCount[3], 4);
   assert.ok(res.baoji.some((b) => b.p === 3 && b.to === 1 && b.points === 4));
-  // 玩家 3 既要付玩家 1 / 2 的鸡，也要把自己的 4 分赔给赢家
+  assert.equal(res.isTing[2], true);
+  assert.ok(res.baoji.some((b) => b.p === 3 && b.to === 2 && b.points === 4));
+  // 玩家 3 既要付玩家 1 / 2 的鸡，也把自己的4分分别赔给两位听牌者。
   assert.ok(res.chickenDeltas[3] < 0);
   assert.equal(res.chickenDeltas.reduce((a, b) => a + b, 0), 0);
 });

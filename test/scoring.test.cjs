@@ -112,19 +112,23 @@ test('首轮报听：首次出牌前无副露可声明，出牌被碰走后仍�
   online.abort(); g.abort();
 });
 
-test('杠与责任鸡：明杠每份4、暗杠补杠三家各4；责任鸡独立为3分', async () => {
+test('杠与责任鸡：杠每份4、责任鸡2分，操作时只记账不扣分', async () => {
   for (const type of ['minggang','angang','bugang']) {
     const g = make();
     g.players[0].hand = repeat(0, type === 'angang' ? 4 : type === 'minggang' ? 3 : 1);
     if (type === 'bugang') g.players[0].melds = [{ type:'peng', tile:0, tiles:[0,0,0] }];
     assert.equal(await g.doKong(0, type, 0, 1), true);
-    assert.deepEqual(g.scores, type === 'minggang' ? [4,-4,0,0] : [12,-4,-4,-4]);
+    assert.deepEqual(g.scores, [0,0,0,0]);
+    assert.deepEqual(g.roundDeltas, [0,0,0,0]);
+    assert.equal(g.kongLog[0].points, 4);
+    assert.equal(g.kongLog[0].settled, false);
+    assert.deepEqual(g.kongLog[0].payers, type === 'minggang' ? [1] : [1,2,3]);
     g.abort();
   }
   const g = make(); g.players[0].hand = [9,9,9]; g.players[1].hand = [9];
   g.discard(1, 9); await g.doKong(0, 'minggang', 9, 1);
-  assert.deepEqual(g.kongLog[0].deltas, [4,-4,0,0]);
-  assert.equal(g.penaltyLog[0].points, 3); assert.deepEqual(g.scores, [7,-7,0,0]);
+  assert.deepEqual(g.kongLog[0].deltas, [0,0,0,0]);
+  assert.equal(g.penaltyLog[0].points, 2); assert.deepEqual(g.scores, [0,0,0,0]);
   g.abort();
 });
 
@@ -135,7 +139,7 @@ test('吃炮14分门槛：包括已杠平胡；报听、硬胡加分不越过门
   assert.equal(R.canChiPao(null), false);
 });
 
-test('黄庄：按最高牌型分查叫，清三龙七对104分，忽略报听硬胡加分并保留已结算流水', () => {
+test('黄庄：按最高牌型分查叫，清三龙七对104分，忽略报听硬胡加分', () => {
   for (const mode of ['classic','yitong']) {
     const g = make(mode);
     g.players[0].hand = [...repeat(0,4),...repeat(2,4),...repeat(4,4),6];
@@ -143,9 +147,8 @@ test('黄庄：按最高牌型分查叫，清三龙七对104分，忽略报听�
     g.players[1].hand = ping().slice(0, -1);
     g.players[2].hand = junk(); g.players[3].hand = junk();
     assert.equal(R.tenpaiTiles(junk(), [], mode).length, 0);
-    g.applyDeltas([12,-4,-4,-4]);
     const result = g.settleDraw();
     assert.equal(result.ting[0].points, 104); assert.equal(result.ting[1].points, 4);
-    assert.deepEqual(result.deltas, [220,4,-112,-112]); zero(result.scores);
+    assert.deepEqual(result.deltas, [208,8,-108,-108]); zero(result.scores);
   }
 });

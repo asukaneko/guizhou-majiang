@@ -182,7 +182,7 @@
     return evaluate;
   }
 
-  function immediate(tile, mode, context) {
+  function discardReward(tile, mode, context) {
     if (tile === mode.wild && Number.isInteger(context.chongCount)) return 3 * (R.CHONG_POINTS[context.chongCount] || 0);
     if (mode.chickens && context.firstChicken === null && (tile === R.YAOJI || tile === R.WUGU)) return R.CHICKEN_BASE[tile] * 3;
     return 0;
@@ -220,7 +220,7 @@
       const rest = remove(hand, tile);
       const metric = evaluate(rest, melds, seen);
       const risk = riskOf(tile, M, ctx);
-      const reward = immediate(tile, M, ctx);
+      const reward = M.chickens && metric.shanten !== 0 ? 0 : discardReward(tile, M, ctx);
       return { ...metric, tile, hand: rest, risk, reward, future: 0,
         value: difficulty === 'easy' ? basicScore(rest, M) : metric.ukeire + metric.winValue * .6 + reward * .8 - risk * level.risk };
     });
@@ -281,7 +281,7 @@
       if (!after) continue;
       const chicken = context.firstChicken;
       const responsibility = chicken && !chicken.taken && chicken.tile === tile && chicken.p !== context.seat ? R.RESPONSIBILITY_POINT : 0;
-      const score = callValue(after, base, (act === 'gang' ? R.KONG_POINT : 0) + responsibility);
+      const score = callValue(after, base, after.shanten === 0 ? (act === 'gang' ? R.KONG_POINT : 0) + responsibility : 0);
       if (score != null && score > value) { best = act; value = score; }
     }
     return best;
@@ -317,7 +317,7 @@
         if (riskOf(tile, M, { ...context, seen: baseline.seen }) > (difficulty === 'hard' ? .3 : .4)) continue;
       }
       const after = evaluate(hand, melds, baseline.seen);
-      const score = callValue(after, baseline, R.KONG_POINT * 3);
+      const score = callValue(after, baseline, after.shanten === 0 ? R.KONG_POINT * 3 : 0);
       if (score != null && score > value) { value = score; best = { type, tile }; }
     }
     return best;

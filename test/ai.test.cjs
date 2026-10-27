@@ -9,6 +9,17 @@ const win = () => [0, 1, 2, 3, 4, 5, 9, 10, 11, 18, 19, 20, 22, 22];
 const junk = () => [0, 3, 6, 9, 12, 15, 18, 21, 24, 1, 10, 19, 22, 8];
 const player = (hand, melds = []) => ({ hand, melds });
 
+test('冲锋鸡估值：未听牌不预支鸡分，打出后听牌才考虑收分收益', () => {
+  const context = { firstChicken:null, lookahead:false };
+  const scattered = AI.analyzeDiscards(junk(), [], 'classic', context).find((r) => r.tile === R.YAOJI);
+  assert.ok(scattered.shanten > 0);
+  assert.equal(scattered.reward, 0);
+  const hand = [0,1,2,3,4,5,12,13,14,18,19,20,22,9];
+  const ready = AI.analyzeDiscards(hand, [], 'classic', context).find((r) => r.tile === R.YAOJI);
+  assert.equal(ready.shanten, 0);
+  assert.equal(ready.reward, 6);
+});
+
 test('向听数：普通胡、听牌、七对四归二及副露分别计算', () => {
   assert.equal(AI.shanten(win(), [], 'classic'), -1);
   assert.equal(AI.shanten(win().slice(0, -1), [], 'classic'), 0);

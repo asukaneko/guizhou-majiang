@@ -106,7 +106,7 @@ test('网络：旧 socket 的延迟 close/message 不影响新连接；会话先
   net.disconnect(); assert.equal(timers.size, 0);
 });
 
-test('网页脚本集成：联机换局、回房实时刷新、完桌重新配置并开启新桌', () => {
+test('网页脚本集成：联机换局、结算看牌、回房实时刷新、完桌重新配置并开启新桌', async () => {
   // DOM 仅用于验证消息与渲染代码能协作；实际视觉布局由设备验收。
   const elements = new Map(), listeners = new Map(), sockets = [], timeouts = [];
   class Element {
@@ -182,7 +182,8 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
     const rules = elements.get('#overlay').innerHTML;
     assert.match(rules, /清三龙七对 <span class="hl">104/);
     assert.match(rules, /至少 14 分/);
-    assert.match(rules, /每个豆 4 分/);
+    assert.match(rules, /每个杠向每位听牌者赔 4 分/);
+    assert.match(rules, /杠和责任鸡作废/);
     assert.match(rules, /向每位胡家付一份/);
   }
   ctx.GZUI.hideResult();
@@ -196,7 +197,11 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
   g.phase = 'playing';
   g.players[0].hand = [0, 1, 2, 3, 4, 5, 18, 19, 20, 22, 23, 18, 17, 17];
   g.players[1].name = '<img src=x>';
-  g.players[2].melds = [{ type: 'angang', tile: 7, tiles: [7, 7, 7, 7] }];
+  g.players[1].hand = [3,4,5,12,13,14,18,19,20,22];
+  g.players[2].hand = [0,1,2,12,13,14,18,19,20,22];
+  g.players[3].hand = [0,3,6,9,12,15,18,21,24,1,10,19,22];
+  g.players[2].hand.push(7,7,7,7);
+  await g.doKong(2, 'angang', 7);
   g.prompts.set(0, { id: 'prompt1', kind: 'discard', self: g.selfActions(0) });
   const room = { id: '4321', host: true, full: true, running: true, allReady: true, roundId: g.roundId, readyId: 'ready1', roundNo: 1, totalRounds: 2,
     config: { mode: 'yitong', totalRounds: 2 },
@@ -243,6 +248,23 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
   assert.equal(ctx.GZProfile.summary().games, 1);
   ctx.GZUI.showResult(ctx.__game.result);
   assert.equal(elements.get('#overlay').classList.contains('hidden'), false);
+  assert.match(elements.get('#overlay').innerHTML, /查看牌面/);
+  assert.match(elements.get('#overlay').innerHTML, /暗杠 八万：黄庄作废/);
+  const clickAction = (act) => listeners.get('click')[0]({ target: { closest: (s) => s === '[data-act]' ? { dataset:{ act } } : null } });
+  clickAction('close');
+  const review = elements.get('#round-review');
+  assert.ok(elements.get('#overlay').classList.contains('hidden'));
+  assert.equal(review.classList.contains('hidden'), false);
+  assert.equal((review.innerHTML.match(/<article /g) || []).length, 4);
+  assert.equal((review.innerHTML.match(/data-tile=/g) || []).length, 51, '四家手牌加暗杠全部明示');
+  assert.doesNotMatch(review.innerHTML, /backface|class="back"|<img src=x/);
+  assert.match(review.innerHTML, /&lt;img src=x&gt;/);
+  assert.match(review.innerHTML, /返回结算/);
+  receive({ t:'snapshot', snap:ended, fx:[] });
+  assert.equal(review.classList.contains('hidden'), false, '同局广播保留查看状态');
+  clickAction('result');
+  assert.ok(review.classList.contains('hidden'));
+  assert.equal(elements.get('#overlay').classList.contains('hidden'), false);
   receive({ t: 'room', room: { ...room, host: false, running: false } });
   assert.equal(elements.get('#btn-speed').disabled, true);
   const resultNext = elements.get('#overlay').querySelector('[data-act="next"]');
@@ -266,8 +288,10 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
   assert.equal(elements.get('#btn-new').disabled, false);
   elements.get('#btn-new').events.get('click')();
   assert.equal(ws.sent.at(-1).t, 'next');
+  clickAction('close');
   receive({ t: 'room', room: { ...room, roundNo: 2 } });
   assert.ok(elements.get('#overlay').classList.contains('hidden'));
+  assert.ok(review.classList.contains('hidden'), '换局收起上一局牌面');
 
   const finishedRoom = { ...room, running: false, finished: true, roundNo: 2 };
   receive({ t: 'snapshot', snap: { ...ended, roundNo: 2, roundId: 'last-round' }, fx: [] });
@@ -343,5 +367,30 @@ test('网页脚本集成：联机换局、回房实时刷新、完桌重新配�
   assert.equal(ctx.__game.roundNo, previous.roundNo + 1);
   assert.equal(ctx.__game.aiDifficulty, 'easy');
   assert.equal(ctx.__game.botSpeed, 'slow');
+  const local = ctx.__game;
+  local.players.forEach((p) => { p.hand = [0,1,2,3,4,5,6,7,8,9,10,11,22]; p.melds = []; });
+  local.players[0].hand.push(22);
+  local.players[1].hand = [2,5,8,10,13,16,19,21,24,26,0,0,0,0];
+  await local.doKong(1, 'angang', 0);
+  local.settleWin([{ p:0, winTile:22 }], { selfDraw:true });
+  ctx.GZUI.showResult(local.result);
+  clickAction('close');
+  assert.equal(review.classList.contains('hidden'), false, '本地胡牌也可查看四家');
+  assert.match(review.innerHTML, /review-winner/);
+  assert.equal((review.innerHTML.match(/data-tile=/g) || []).length, 54);
+  clickAction('result');
+  assert.match(elements.get('#overlay').innerHTML, /每位听牌者/);
+  assert.match(elements.get('#overlay').innerHTML, /未听牌，向 .* 各赔 4 分/);
+  const robHand = [0,1,2,3,4,5,6,7,8,9,10,11,22];
+  const robbed = { ...local.result, robKong:true, winTile:22, winners:[{ ...local.result.winners[0], from:1 }] };
+  local.players[1].hand = robHand.concat(22); local.players[1].melds = [];
+  local.result = robbed;
+  ctx.GZUI.showResult(robbed);
+  clickAction('close');
+  const sourceHand = review.innerHTML.split('<div class="review-hand">')[2].split('</div>\n')[0];
+  assert.equal((sourceHand.match(/data-tile=/g) || []).length, 13, '抢杠者展示被抢后的剩余手牌');
+  clickAction('close');
+  ctx.GZUI.showLobby();
+  assert.ok(review.classList.contains('hidden'), '返回大厅收起牌面');
   ctx.__game.phase = 'ended';
 });

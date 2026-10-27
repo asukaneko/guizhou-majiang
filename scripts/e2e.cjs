@@ -71,7 +71,7 @@ async function client(url) {
         const done = await table.a.next('snapshot', (m) => m.snap.roundNo === round && m.snap.result);
         assert.equal(done.snap.mode, table.mode);
         assert.equal(done.snap.scores.reduce((a, b) => a + b, 0), 0);
-        assert.ok(done.snap.players.slice(1).every((p) => !p.hand.length));
+        assert.ok(done.snap.players.every((p) => p.hand.length === p.handCount), '结算后公开四家手牌');
         if (round === 1) {
           const room = app.rooms.get(table.id);
           const nextDealer = room.game.nextDealer;
@@ -83,6 +83,7 @@ async function client(url) {
           const opening = await table.a.next('snapshot', (m) => m.snap.roundNo === 2 && m.snap.phase === 'dealing');
           assert.deepEqual(opening.snap.scores, done.snap.scores, '换局继承累计分');
           assert.equal(opening.snap.dealer, nextDealer, '换局继承下一庄家');
+          assert.ok(opening.snap.players.slice(1).every((p) => !p.hand.length), '换局重新隐藏他人手牌');
         }
         console.log(`  ${table.mode} 第 ${round} 局完成，累计分 ${done.snap.scores.join(', ')}`);
       }));
@@ -114,6 +115,7 @@ async function client(url) {
       const done = (await table.a.next('snapshot', (m) => m.snap.roundId !== previous.roundId && m.snap.result)).snap;
       assert.equal(done.mode, mode);
       assert.equal(done.scores.reduce((a, b) => a + b, 0), 0);
+      assert.ok(done.players.every((p) => p.hand.length === p.handCount), '新桌结算也可查看四家牌面');
       for (const c of [table.a, table.b]) {
         assert.deepEqual(c.messages.filter((m) => m.t === 'error').map((m) => m.err), c === owner ? ['已打满约定的 2 局，请在房间开启新的一桌'] : []);
       }

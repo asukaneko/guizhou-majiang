@@ -73,6 +73,7 @@
 
   let game = null;
   let blockedShown = false;
+  let reviewGame = null, reviewRound = null;
   const el = {};
 
   function cacheDom() {
@@ -84,6 +85,7 @@
     el.toast = $('#toast');
     el.tip = $('#tip');
     el.overlay = $('#overlay');
+    el.review = $('#round-review');
     el.round = $('#cp-round');
     el.wall = $('#cp-wall');
     el.turn = $('#cp-turn');
@@ -237,6 +239,50 @@
     renderCenter();
     renderActions();
     renderActive();
+    renderReview();
+  }
+
+  function hideReview() {
+    reviewGame = null;
+    reviewRound = null;
+    el.review.classList.add('hidden');
+    el.review.innerHTML = '';
+    el.review._sig = null;
+  }
+
+  function renderReview() {
+    if (reviewGame !== game || reviewRound !== (game.state?.roundId || game.roundNo) || game.phase !== 'ended' || !game.result) {
+      hideReview();
+      return;
+    }
+    const res = game.result;
+    const seats = game.players.map((p) => {
+      const winner = (res.winners || []).find((w) => w.p === p.id);
+      let hand = winner ? winner.hand : p.hand;
+      if (!winner && res.robKong && res.winners[0].from === p.id) {
+        hand = hand.slice();
+        const robbed = hand.indexOf(res.winTile);
+        if (robbed >= 0) hand.splice(robbed, 1);
+      }
+      const state = winner ? '胡牌' : (res.draw ? res.ting[p.id].tiles.length > 0 : res.isTing[p.id]) ? '听牌' : '未听';
+      const melds = p.melds.map((m) => `<div class="meld">${m.tiles.map((t) => faceHtml(t)).join('')}</div>`).join('');
+      return `<article class="review-seat${winner ? ' review-winner' : ''}">
+        <h3>${esc(p.name)}${p.id === 0 && p.name !== '你' ? '（你）' : ''}<span>${state}</span></h3>
+        <div class="review-hand">${hand.map((t) => faceHtml(t)).join('')}</div>
+        ${melds ? `<div class="review-melds">${melds}</div>` : ''}
+      </article>`;
+    }).join('');
+    setHtml(el.review, `<div class="review-head"><strong>第 ${game.roundNo} 局 · 四家牌面</strong><button class="btn-primary" data-act="result">返回结算</button></div><div class="review-seats">${seats}</div>`);
+    el.review.classList.remove('hidden');
+  }
+
+  function showCards() {
+    if (!game?.result || game.phase !== 'ended') return;
+    reviewGame = game;
+    reviewRound = game.state?.roundId || game.roundNo;
+    el.overlay.classList.add('hidden');
+    renderReview();
+    el.review.querySelector('[data-act="result"]').focus();
   }
 
   function renderSeats() {
@@ -533,7 +579,7 @@
         : '';
       collectHtml = `${flipText}
         <div class="ji-row" style="margin-top:8px">${chickenChips}</div>
-        <p class="note" style="margin-top:6px">叫牌的人按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份；没叫牌的人（包鸡）反而把自己的鸡赔给胡牌的人。</p>
+        <p class="note" style="margin-top:6px">叫牌的人按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份；没叫牌的人（包鸡）把自己的鸡赔给每位听牌者，包括未胡牌的听牌者。</p>
         ${baojiText}`;
     } else {
       collectHead = '幺筒（财神）';
@@ -555,17 +601,18 @@
       const d = res.deltas[i];
       const state = isWinner(i) ? '胡牌' : (res.isTing[i] ? '叫牌' : '未叫');
 
-      // 收支明细：胡 / 豆 · 责任鸡 / 鸡（或冲幺筒）
+      // 各项均使用本局实际收支，区分杠、责任鸡和普通鸡。
       const parts = [];
       const w = res.winDeltas[i];
       if (w) parts.push(`胡 ${w > 0 ? '+' : ''}${w}`);
-      let kong = 0, chong = 0;
+      let kong = 0, responsibility = 0, chong = 0;
       res.kongLog.forEach((k) => { kong += k.deltas[i]; });
       (res.penaltyLog || []).forEach((k) => {
         if (k.kind === '冲幺筒') chong += k.deltas[i];
-        else kong += k.deltas[i];
+        else responsibility += k.deltas[i];
       });
-      if (kong) parts.push(`豆 ${kong > 0 ? '+' : ''}${kong}`);
+      if (kong) parts.push(`杠 ${kong > 0 ? '+' : ''}${kong}`);
+      if (responsibility) parts.push(`责 ${responsibility > 0 ? '+' : ''}${responsibility}`);
       if (chong) parts.push(`冲 ${chong > 0 ? '+' : ''}${chong}`);
       if (mode.chickens) {
         const c = res.chickenDeltas[i];
@@ -590,27 +637,16 @@
       </tr>`;
     }).join('');
 
-    const kongNotes = res.kongLog.map((k) => {
-      const who = game.players[k.p].name;
-      const kind = k.type === 'angang' ? '暗杠' : k.type === 'bugang' ? '补杠' : '明杠';
-      return `${who} ${kind} ${TN(k.tile)}`;
-    }).concat((res.penaltyLog || []).filter((k) => k.kind !== '冲幺筒').map((k) =>
-      `${esc(game.players[k.p].name)} 冲锋鸡被 ${esc(game.players[k.to].name)} 拿走，责任鸡赔 ${k.points} 分`
-    ));
-    const kongRows = kongNotes.length
-      ? `<h3>豆 / 责任鸡</h3><p class="note">${kongNotes.join('　·　')}</p>`
-      : '';
-
     const headCells = mode.chickens
-      ? '<th>玩家</th><th>状态</th><th>鸡</th><th>明细（胡 · 豆 · 鸡）</th><th>本局</th><th>总分</th>'
-      : '<th>玩家</th><th>状态</th><th>明细（胡 · 豆 · 冲）</th><th>本局</th><th>总分</th>';
+      ? '<th>玩家</th><th>状态</th><th>鸡</th><th>明细（胡 · 杠 · 责 · 鸡）</th><th>本局</th><th>总分</th>'
+      : '<th>玩家</th><th>状态</th><th>明细（胡 · 杠 · 冲）</th><th>本局</th><th>总分</th>';
 
     return `<div class="panel${multi ? ' multi' : ''}">
       ${banner}
       ${blocks}
       <h3>${collectHead}</h3>
       ${collectHtml}
-      ${kongRows}
+      ${deferredHtml(res)}
       <h3>本局结算</h3>
       <table class="score-table">
         <thead><tr>${headCells}</tr></thead>
@@ -618,11 +654,27 @@
       </table>
       <div class="panel-actions">
         <p class="round-ready-status" data-ready-status role="status" aria-live="polite"></p>
-        <button class="btn-ghost" data-act="close">看看牌桌</button>
+        <button class="btn-ghost" data-act="close">查看牌面</button>
         <button class="btn-ghost" data-act="lobby">回大厅</button>
         <button class="btn-primary" data-act="next">再来一局</button>
       </div>
     </div>`;
+  }
+
+  function deferredHtml(res) {
+    const name = (p) => esc(game.players[p].name);
+    const outcome = (k) => {
+      if (k.voided) return '黄庄作废';
+      const others = k.deltas.map((n, i) => ({ n, i }))
+        .filter(({ n }) => k.reversed ? n > 0 : n < 0).map(({ i }) => name(i)).join('、');
+      return k.reversed ? `未听牌，向 ${others} 各赔 ${k.points} 分` : `已听牌，向 ${others} 各收 ${k.points} 分`;
+    };
+    const notes = (res.kongLog || []).map((k) => {
+      const kind = k.type === 'angang' ? '暗杠' : k.type === 'bugang' ? '补杠' : '明杠';
+      return `${name(k.p)} ${kind} ${TN(k.tile)}：${outcome(k)}`;
+    }).concat((res.penaltyLog || []).filter((k) => k.kind === '责任鸡').map((k) =>
+      `${name(k.to)} 拿走 ${name(k.p)} 的冲锋鸡，责任鸡：${outcome(k)}`));
+    return notes.length ? `<h3>杠 / 责任鸡</h3><p class="note">${notes.join('；')}</p>` : '';
   }
 
   function drawHtml(res) {
@@ -639,10 +691,10 @@
       </tr>`;
     }).join('');
     const chong = (res.chongLog || []).map((k) =>
-      `${esc(game.players[k.p].name)} 冲幺筒（第 ${k.seq} 张）赔 ${k.points} 分/家`);
+      `${esc(game.players[k.p].name)} 冲幺筒（第 ${k.seq} 张）收 ${k.points} 分/家`);
     const note = mode.chickens
-      ? '本局不翻牌，鸡与豆不另算，按查叫结算。'
-      : `本模式不捉鸡，按查叫结算。${chong.length ? '冲幺筒：' + chong.join('；') : ''}`;
+      ? '本局不翻牌，杠和责任鸡作废，普通鸡不结算，只进行查叫。'
+      : `本局杠分作废，按查叫结算。${chong.length ? '已发生的冲幺筒保留：' + chong.join('；') : ''}`;
     return `<div class="panel">
       <div class="result-head">
         <div>
@@ -653,13 +705,14 @@
       </div>
       <h3>查叫</h3>
       <p class="note">未叫牌的人，赔给每个叫牌者「其叫牌牌型的分值」。${note}</p>
+      ${deferredHtml(res)}
       <table class="score-table">
         <thead><tr><th>玩家</th><th>状态</th><th>听牌</th><th>本局</th><th>总分</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <div class="panel-actions">
         <p class="round-ready-status" data-ready-status role="status" aria-live="polite"></p>
-        <button class="btn-ghost" data-act="close">看看牌桌</button>
+        <button class="btn-ghost" data-act="close">查看牌面</button>
         <button class="btn-ghost" data-act="lobby">回大厅</button>
         <button class="btn-primary" data-act="next">再来一局</button>
       </div>
@@ -667,6 +720,7 @@
   }
 
   function showResult(res) {
+    hideReview();
     el.overlay.classList.remove('hidden');
     el.overlay.innerHTML = resultHtml(res);
     refreshRoundActions();
@@ -734,6 +788,7 @@
 
   /** 新一局开始（联机：房主开了下一局）→ 收起上一局结算 */
   function hideResult() {
+    hideReview();
     el.overlay.classList.add('hidden');
     el.overlay.innerHTML = '';
   }
@@ -753,8 +808,8 @@
 
     <h3>豆（杠）</h3>
     <ul>
-      <li>每个豆 ${R.KONG_POINT} 分：暗杠、补杠由其他三家各付 ${R.KONG_POINT}；明杠只由放杠那家付 ${R.KONG_POINT}</li>
-      <li>豆分当场结算，直接计入总分</li>
+      <li>杠时只记账，胡牌时统一结算；本人听牌才收分：暗杠、补杠向其他三家各收 ${R.KONG_POINT} 分，明杠向放杠者收 ${R.KONG_POINT} 分</li>
+      <li>本人未听牌，每个杠向每位听牌者赔 ${R.KONG_POINT} 分；黄庄时本局所有杠分作废</li>
     </ul>
 
     <h3>抢杠胡 / 热炮 / 一炮多响</h3>
@@ -768,7 +823,7 @@
     <p>只能在本人首次出牌前、无副露且可以打牌听牌时点「<span class="hl">报听</span>」（+${R.BONUS.baoting}）：系统替你打出保持听牌的牌，之后手牌锁定，不能碰杠，摸什么打什么，见胡就胡。起手13张就听牌并报听算<span class="hl">天听</span>（+${R.BONUS.tianting}），替代报听加分。</p>
 
     <h3>黄庄</h3>
-    <p>牌墙摸完按查叫结算：未叫的人赔给每个叫牌者「其叫牌牌型的分值」。</p>
+    <p>牌墙摸完按查叫结算：未叫的人赔给每个叫牌者「其最高基础牌型的分值」，不加报听、天听或硬胡。杠和责任鸡作废，不翻牌、不算普通鸡；已发生的冲幺筒保留。</p>
 
     <h3>人机代打</h3>
     <p>右上角「人机代打」开关（快捷键 <span class="hl">A</span>）：电脑接管出牌、碰杠胡和抢杠，关闭后交回手动操作。报听后继续遵守锁牌规则。</p>`;
@@ -799,9 +854,9 @@
       <li>翻牌鸡：胡牌后翻牌墙第 1 张，翻到牌的下一张为鸡（翻 5 万 → 6 万；翻 9 条 → 幺鸡），1 分/张</li>
       <li><span class="hl">金鸡</span>：翻牌鸡正好是幺鸡 / 乌骨鸡时，该牌种翻倍（幺鸡 ${R.CHICKEN_BASE[R.YAOJI] * 2} 分、八筒 ${R.CHICKEN_BASE[R.WUGU] * 2} 分）</li>
       <li><span class="hl">冲锋鸡</span>：本局第一张被打出的幺鸡 / 八筒，计双倍</li>
-      <li><span class="hl">责任鸡</span>：冲锋鸡被别人碰 / 杠走，打牌的人向拿牌者付 ${R.RESPONSIBILITY_POINT} 分，这张不再翻倍</li>
-      <li><span class="hl">包鸡</span>：胡牌时没叫牌的人，自己手里的鸡反过来赔给胡牌的人</li>
-      <li>叫牌（听牌）的人按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份</li>
+      <li><span class="hl">责任鸡</span>：冲锋鸡被别人碰 / 杠走，只记账且这张不再翻倍。胡牌时拿牌者听牌，原出牌者付 ${R.RESPONSIBILITY_POINT} 分；拿牌者未听，向每位听牌者赔 ${R.RESPONSIBILITY_POINT} 分</li>
+      <li><span class="hl">包鸡</span>：胡牌时没叫牌的人，按自己手牌、副露和牌河的鸡分，向每位听牌者各赔一份</li>
+      <li>鸡分在胡牌时统一结算；叫牌（听牌）的人按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份</li>
     </ul>
     ${RULES_COMMON}`,
 
@@ -880,7 +935,8 @@
         game.humanRespond(act.replace('claim-', ''));
       } else if (act === 'claim-pass') game.humanRespond('pass');
       else if (act === 'next') startNewRound();
-      else if (act === 'close') el.overlay.classList.add('hidden');
+      else if (act === 'close') showCards();
+      else if (act === 'result' && game?.phase === 'ended' && game.result) showResult(game.result);
       else if (act === 'lobby') {
         if (game && game.isRemote) showOnlineRoom();
         else showLobby();
@@ -901,6 +957,7 @@
         e.preventDefault(); e.target.click(); return;
       }
       if (e.key === 'Escape') {
+        if (reviewGame === game && game?.result) { showResult(game.result); return; }
         if (game && game.awaiting && game.awaiting.kind === 'claim') game.humanRespond('pass');
         else el.overlay.classList.add('hidden');
         return;
@@ -1001,6 +1058,7 @@
 
   /** body 状态类：视图相关的 CSS 全走这里 */
   function setView(name) {
+    if (name !== 'game') hideReview();
     document.body.classList.toggle('in-lobby', name === 'lobby');
     document.body.classList.toggle('in-online', name === 'online');
     document.body.classList.toggle('in-game', name === 'game');

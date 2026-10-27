@@ -238,7 +238,7 @@
   // 牌型取最高的一种，不叠加。清一色按「手牌 + 副露」整体同门判定。
   const HU_BASE = 4;
   const KONG_POINT = 4;
-  const RESPONSIBILITY_POINT = 3;
+  const RESPONSIBILITY_POINT = 2;
   const CHI_PAO_MIN = 14;
   const PATTERN_POINTS = {
     ping: HU_BASE, duizi: 10 + HU_BASE, qidui: 20 + HU_BASE, longqidui: 40 + HU_BASE,
