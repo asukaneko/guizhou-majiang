@@ -104,10 +104,11 @@
   }
 
   function openRenameDialog() {
-    if (!game?.isRemote || !window.GZOnline.room || window.GZNet.status() !== 'open') {
-      toast('连接房间后才能修改昵称'); return;
+    // 等待开局时还没有对局对象，只要在房间里且连接正常就能改名（房主、房客都一样）
+    if (!window.GZOnline?.room || window.GZNet.status() !== 'open') {
+      toast('进入房间并连上服务器后才能修改昵称'); return;
     }
-    el.renameInput.value = P.get().name;
+    el.renameInput.value = window.GZProfile.get().name;
     el.renameDialog.showModal();
     el.renameInput.focus(); el.renameInput.select();
   }
@@ -169,7 +170,7 @@
     el.autoBtn.classList.toggle('on', enabled);
     el.autoBtn.setAttribute('aria-pressed', String(enabled));
     el.resultBtn.classList.toggle('hidden', !(game?.phase === 'ended' && game.result));
-    el.renameBtn.classList.toggle('hidden', !(game?.isRemote && window.GZOnline?.room));
+    el.renameBtn.classList.toggle('hidden', !window.GZOnline?.room);
     refreshRoundActions();
   }
 
@@ -1036,6 +1037,10 @@
     $('#btn-rules').addEventListener('click', () => showRules(game ? game.mode.id : 'classic'));
     el.resultBtn.addEventListener('click', () => {
       if (game?.phase === 'ended' && game.result) showResult(game.result);
+    });
+    el.menu.addEventListener('toggle', () => {
+      // 抬升标题栏层级，菜单才不会被侧边聊天面板盖住
+      document.body.classList.toggle('menu-open', el.menu.open);
     });
     el.menu.addEventListener('click', (e) => {
       if (e.target.closest('.tb-menu-panel .tb-btn')) setTimeout(() => { el.menu.open = false; }, 0);

@@ -32,6 +32,15 @@
     el.latest.textContent = `查看 ${unread} 条新消息`;
     el.latest.classList.toggle('hidden', !expanded() || !unread);
     el.toggle.setAttribute('aria-label', unread ? `房间聊天，${unread} 条未读消息` : '房间聊天');
+    // 聊天入口收在菜单里，折叠时未读数字要挂在菜单按钮上才看得到
+    if (el.menuBadge) {
+      el.menuBadge.textContent = el.badge.textContent;
+      el.menuBadge.classList.toggle('hidden', !unread);
+    }
+    if (el.menuTrigger) {
+      el.menuTrigger.setAttribute('aria-label', unread ? `打开游戏菜单，${unread} 条聊天未读` : '打开游戏菜单');
+      el.menuTrigger.classList.toggle('has-unread', !!unread);
+    }
     for (const button of document.querySelectorAll('[data-room-chat-toggle]')) {
       const label = expanded() ? '折叠房间聊天' : '打开房间聊天';
       button.querySelector('.room-chat-label').textContent = label;
@@ -160,7 +169,8 @@
   }
   function init() {
     el = { toggle: $('#btn-chat'), badge: $('#chat-unread'), close: $('#chat-close'), panel: $('#room-chat'), room: $('#chat-room'),
-      list: $('#chat-messages'), input: $('#chat-input'), send: $('#chat-send'), status: $('#chat-status'), quick: $('#chat-quick'), latest: $('#chat-latest') };
+      list: $('#chat-messages'), input: $('#chat-input'), send: $('#chat-send'), status: $('#chat-status'), quick: $('#chat-quick'), latest: $('#chat-latest'),
+      menuBadge: $('#menu-unread'), menuTrigger: $('#tb-menu-trigger') };
     el.toggle.addEventListener('click', toggle);
     el.close.addEventListener('click', () => close());
     el.latest.addEventListener('click', () => { unread = 0; bottom(); refresh(); });

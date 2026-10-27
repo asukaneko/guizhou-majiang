@@ -90,6 +90,11 @@ html, body {
 .tb-menu-panel .tb-btn { min-width: 0; min-height: 38px; height: auto; padding: 6px 9px; text-align: left; white-space: normal; line-height: 1.25; }
 .tb-menu-panel .tb-btn:focus-visible, .tb-menu-trigger:focus-visible { outline: 2px solid #e7c878; outline-offset: 2px; }
 .tb-menu-panel .hidden { display: none !important; }
+.tb-menu-trigger .chat-unread { margin-left: -2px; }
+.tb-menu-trigger.has-unread { border-color: rgba(231, 176, 120, 0.85); }
+/* 菜单展开时把标题栏抬到侧边聊天面板（z-index 70）之上，否则会被盖住 */
+body.menu-open #titlebar { z-index: 85; }
+body.mobile-table.in-game.menu-open .tb-actions { overflow: visible; }
 
 .tb-btn {
   height: 28px;
