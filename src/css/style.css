@@ -96,6 +96,32 @@ html, body {
 body.menu-open #titlebar { z-index: 85; }
 body.mobile-table.in-game.menu-open .tb-actions { overflow: visible; }
 
+/* 标题栏实际高度：给浮层定位用（与各处 #titlebar 高度保持一致） */
+:root { --tb-h: 48px; }
+@media (max-height: 700px) { :root { --tb-h: 42px; } }
+@media (max-width: 680px) { :root { --tb-h: 52px; } }
+body.mobile-table.in-game { --tb-h: 42px; }
+
+/* 窄屏与牌桌里的菜单按钮常被排到左边，下拉会跑到屏幕外：
+   改成挂在标题栏下方的浮层，横向按视口对齐，永远完整可见。 */
+@media (max-width: 1000px) {
+  .tb-menu-panel, body.mobile-table.in-game .tb-menu-panel {
+    position: fixed; top: calc(var(--tb-h) + 8px); right: 8px; left: auto;
+    width: min(320px, calc(100vw - 16px));
+    max-height: calc(100% - var(--tb-h) - 16px); overflow-y: auto; overscroll-behavior: contain;
+  }
+}
+@media (min-width: 1001px) {
+  body.mobile-table.in-game .tb-menu-panel {
+    position: fixed; top: calc(var(--tb-h) + 8px); right: 8px; left: auto;
+    width: min(320px, calc(100vw - 16px));
+    max-height: calc(100% - var(--tb-h) - 16px); overflow-y: auto; overscroll-behavior: contain;
+  }
+}
+@media (max-width: 680px) {
+  .tb-menu-panel, body.mobile-table.in-game .tb-menu-panel { left: 8px; right: 8px; width: auto; }
+}
+
 .tb-btn {
   height: 28px;
   padding: 0 12px;
