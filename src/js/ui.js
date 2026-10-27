@@ -518,11 +518,15 @@
 
   /* ---------------- 反馈 ---------------- */
 
+  const TOAST_MAX = 4;        // 同时最多 4 条，密集播报时挤掉最早的
+  const ANNOUNCE_MS = 2400;   // 旁白类提示（冲锋鸡/冲幺筒/杠分…）留久一点
+
   function toast(text, ms) {
     const div = document.createElement('div');
     div.className = 'toast-item';
     div.textContent = text;
     el.toast.appendChild(div);
+    while (el.toast.childElementCount > TOAST_MAX) el.toast.firstElementChild.remove();
     setTimeout(() => { div.classList.add('out'); setTimeout(() => div.remove(), 320); }, ms || 2200);
   }
 
@@ -1195,19 +1199,18 @@
         else if (String(f.text).indexOf('杠') >= 0) Sound.gang();
         else if (f.text === '胡') Sound.hu();
       } else if (f.type === 'chong') {
+        // 提示文字由服务端随 msg 特效下发，这里只补音效，避免重复弹两条
         Sound.tone(760, 0.12, 'triangle', 0.09);
         Sound.tone(1140, 0.18, 'sine', 0.07, 0.09);
-        toast(`冲幺筒：向其他三家各收 ${f.points} 分`, 2400);
       } else if (f.type === 'ting') {
         Sound.tone(1046, 0.18, 'sine', 0.1);
-        toast(f.tianTing ? `天听！起手就听牌，胡牌 +${R.BONUS.tianting}` : `已报听：手牌锁定，胡牌 +${R.BONUS.baoting}`, 2600);
       } else if (f.type === 'blocked') {
         if (!blockedShown) {
           blockedShown = true;
           toast('当前牌型未满足吃炮门槛，可继续摸牌或自摸');
         }
       } else if (f.type === 'msg') {
-        if (f.text) toast(f.text, 2000);
+        if (f.text) toast(f.text, ANNOUNCE_MS);
       }
     }
   }
@@ -1262,10 +1265,10 @@
     on('state', render);
     on('deal', () => { Sound.deal(); blockedShown = false; saveScore(); render(); });
     on('discard', () => Sound.discard());
-    on('chong', (entry) => {
+    on('chong', () => {
+      // 旁白由 message 事件统一弹出，这里只补音效，避免重复
       Sound.tone(760, 0.12, 'triangle', 0.09);
       Sound.tone(1140, 0.18, 'sine', 0.07, 0.09);
-      toast(`冲幺筒：向其他三家各收 ${entry.points} 分`, 2400);
     });
     on('call', ({ p, text }) => {
       showCall(p, text);
@@ -1273,15 +1276,19 @@
       else if (text.indexOf('杠') >= 0) { Sound.gang(); saveScore(); }
       else if (text === '胡') Sound.hu();
     });
-    on('message', (text) => { if (text) renderCenter(); });
+    // 单机也要同步弹条：冲锋鸡、责任鸡、冲幺筒、杠分、报听等旁白
+    on('message', (text) => {
+      if (!text) return;
+      renderCenter();
+      toast(text, ANNOUNCE_MS);
+    });
     on('blocked', () => {
       if (blockedShown) return;
       blockedShown = true;
       toast('当前牌型未满足吃炮门槛，可继续摸牌或自摸');
     });
-    on('ting', (info) => {
+    on('ting', () => {
       Sound.tone(1046, 0.18, 'sine', 0.1);
-      toast(info.tianTing ? `天听！起手就听牌，胡牌 +${R.BONUS.tianting}` : `已报听：手牌锁定，胡牌 +${R.BONUS.baoting}`, 2600);
     });
     g.on('roundEnd', (res) => {
       if (game !== g) return;

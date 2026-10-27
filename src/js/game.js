@@ -243,7 +243,7 @@
       // 冲锋鸡：本局第一张被打出的幺鸡 / 乌骨鸡
       if (this.mode.chickens && !this.firstChicken && (tile === R.YAOJI || tile === R.WUGU)) {
         this.firstChicken = { p, tile, index: pl.discards.length - 1, taken: false };
-        this.note(`冲锋鸡：${pl.name} 打出 ${R.tileName(tile)}`);
+        this.note(`冲锋鸡：${pl.name} 打出 ${tile === R.WUGU ? '乌骨鸡' : '幺鸡'}（本局首张，胡牌时双倍计分）`);
       }
       // 冲幺筒：财神被扔出来要赔分，赔率逐张递减
       if (this.mode.wild !== null && this.mode.wild !== undefined && tile === this.mode.wild) {
@@ -655,7 +655,9 @@
       if (tile == null) return false;
       pl.tingDeclared = true;
       pl.tianTing = !!pl.tingAtDeal && !pl.discards.length && !pl.melds.length;
-      this.note(`${pl.name} ${pl.tianTing ? '天听' : '报听'}：打出 ${R.tileName(tile)} 后锁牌`);
+      this.note(pl.tianTing
+        ? `${pl.name} 天听：打出 ${R.tileName(tile)} 后锁牌，胡牌 +${BONUS.tianting}`
+        : `${pl.name} 报听：打出 ${R.tileName(tile)} 后锁牌，胡牌 +${BONUS.baoting}`);
       this.emit('ting', { p: 0, tianTing: pl.tianTing, tile });
       this.awaiting = null;
       this.emitState();
