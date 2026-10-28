@@ -29,6 +29,10 @@ npm start              # 启动 HTTP + WebSocket，默认端口 8788
 - **掉线恢复**：在同一标签页刷新或临时断网后自动重连；服务端保留座位 60 秒，由电脑临时代打。恢复后使用原座位、手牌和累计分数；超时转为机器人，全部真人离开后清理房间。
 - **连续开桌**：打满约定局数后返回房间，房主可调整玩法、局数和机器人，再点「开启新的一桌」。房号与现有座位保留，新桌从第 1 局开始并继承累计分；房主留在同一房间期间分数持续累加，主动退房后下一桌重新计分。房间内增删机器人实时同步。
 - **回归验证**：`npm test` 覆盖规则、房间、真实 WS、网页消息与横屏逻辑；`npm run e2e` 验证两种玩法并行、六局换局、对局中恢复连接及原房重新开桌。手机真机视觉效果仍需设备验收。
+- **3D 牌桌（three.js）**：桌面、木框、绒面、四方手牌、牌河、副露、桌心铭牌都渲染在 WebGL 里（`src/js/scene3d.js`，three.js 走本地 `src/vendor/three.min.js`，不联网）。牌是带圆角和倒角的薄片实体；三家对手的牌各自朝自己的方向立着，自己这一排则整排后仰、牌面正对镜头，所以自己的牌最清楚；摸到的牌单独空一格摆在牌列最右边，不并进手牌；牌河按 7 列网格平铺在手下沿，副露平摊在里面那条道上，桌心是同向的圆角方牌，靠透视相机和带阴影的主光得到近大远小和投影；点牌、悬停提示用射线拾取。机位约 30° 俯角、坐在桌边略往里收，自己的手牌占屏幕下方最大的一档。
+- **听牌候选**：听牌时手牌右端会挂一排候选牌，每张角上标可见剩余张数（3D 牌桌下这排候选跟着 3D 手牌的右端定位）。
+- **帧率显示**：牌桌左上角常驻一个小的实时帧率（`requestAnimationFrame` 采样，每 0.5 秒刷新，低于 45 变琥珀色），3D 和 DOM 兜底两套牌桌都显示。
+- **DOM 兜底**：手机横屏、或者环境取不到 WebGL 时，自动退回原来的 CSS 牌桌（`#scene/#table`），布局和操作完全不变；座位信息牌、按钮、弹层、结算始终是 DOM，浮在 canvas 之上。
 
 桌面客户端保留为兼容入口：需要时 `npm install`，再执行 `npm run start:desktop`。
 
@@ -262,7 +266,7 @@ npm run shot:preview    # 牌面预览 → output/tiles.png
 npm run sim             # 200 局随机对局压测：异常与零和检查
 ```
 
-`electron/main.js` 里的 `--shot-mode=lobby|table|claim|result|rules|tip|ting|auto|baoting|baoting-on|multi|yitong|yitong-result|yitong-rules|online|online-room|online-e2e` 可以分别截取对应界面，便于回归检查样式。
+`electron/main.js` 里的 `--shot-mode=lobby|table|claim|result|rules|tip|ting|auto|baoting|baoting-on|multi|yitong|yitong-result|yitong-rules|online|online-room|online-e2e` 可以分别截取对应界面，便于回归检查样式。加 `--shot-mobile` 会用 DevTools 设备模拟（触屏 + 780×360）截手机横屏牌桌，`--shot-size=900x420` 可改尺寸。
 
 ## 后续可以做的
 

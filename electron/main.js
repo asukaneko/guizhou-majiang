@@ -10,7 +10,12 @@ const shotPath = shotArg ? shotArg.split('=')[1] : path.join(__dirname, '..', 'o
 
 let win = null;
 
-if (isShot) app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('allow-file-access-from-files');
+if (isShot) {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+  app.commandLine.appendSwitch('use-angle', 'swiftshader');
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -20,7 +25,7 @@ function createWindow() {
     minHeight: 720,
     frame: false,
     show: !isShot,
-    backgroundColor: '#060c09',
+    backgroundColor: '#080f20',
     title: '贵州麻将 · 贵阳捉鸡',
     icon: path.join(__dirname, '..', 'assets', 'icon.png'),
     autoHideMenuBar: true,
@@ -36,6 +41,20 @@ function createWindow() {
   const page = process.argv.find((a) => a.startsWith('--shot-url='));
   const file = page ? page.split('=')[1] : path.join(__dirname, '..', 'src', 'index.html');
   win.loadFile(file);
+
+  if (process.argv.includes('--shot') || process.env.DIAG) {
+    // 截图时把渲染进程的报错打到终端（新旧两种 Electron 事件签名都兼容）
+    win.webContents.on('console-message', (...args) => {
+      const ev = args[0];
+      const modern = ev && typeof ev === 'object' && typeof ev.message === 'string';
+      const level = modern ? ev.level : args[1];
+      const message = modern ? ev.message : args[2];
+      const where = modern ? `${String(ev.sourceId).split('/').pop()}:${ev.lineNumber}` : '';
+      if (level >= 2 || level === 'warning' || level === 'error') {
+        if (!/Content-Security-Policy/.test(message)) console.log('CONSOLE', level, message, where);
+      }
+    });
+  }
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -78,6 +97,20 @@ async function capture() {
   const w = win;
   await new Promise((r) => w.webContents.once('did-finish-load', r));
   await sleep(900);
+
+  // 手机牌桌自检：用 DevTools 设备模拟（触屏 → coarse pointer → 移动布局）
+  if (process.argv.includes('--shot-mobile')) {
+    const size = (process.argv.find((a) => a.startsWith('--shot-size=')) || '').split('=')[1] || '780x360';
+    const [mw, mh] = size.split('x').map(Number);
+    const dbg = w.webContents.debugger;
+    try { dbg.attach('1.3'); } catch (e) { /* already attached */ }
+    await dbg.sendCommand('Emulation.setDeviceMetricsOverride', { width: mw, height: mh, deviceScaleFactor: 1, mobile: true });
+    await dbg.sendCommand('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+    const loaded = new Promise((r) => w.webContents.once('did-finish-load', r));
+    w.webContents.reload();
+    await loaded;
+    await sleep(1200);
+  }
 
   const isPreview = process.argv.some((a) => a.startsWith('--shot-url='));
   if (isPreview) {
@@ -503,24 +536,57 @@ async function capture() {
         const g = window.__game;
         g.phase = 'playing';
         g.turn = 0;
-        g.players[0].hand = [0,1,2,3,4,5,6,7,8,12,13,18,18,20];
+        g.players[0].hand = [0,1,2,3,4,5,6,7,8,9,10,11,18,18];
         g.players[0].melds = [];
         g.players[0].discards = [22, 25];
-        g.players[0].justDrawn = 20;
+        g.players[0].justDrawn = 18;
         g.players[1].discards = [9, 20, 14];
         g.awaiting = { kind: 'discard', player: 0, self: { hu: null, angang: [], bugang: [] } };
         g.emitState();
-        setTimeout(function(){
-          const node = document.querySelector('.hand-main .tile[data-tile="20"]');
-          if (!node) return;
-          const r = node.getBoundingClientRect();
-          node.dispatchEvent(new MouseEvent('mousemove', {
-            bubbles: true, clientX: r.x + r.width / 2, clientY: r.y + 8
-          }));
-        }, 350);
       })(); true;
     `);
-    await sleep(1200);
+    await sleep(600);
+    const tipInfo = await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        // 二段：确认状态还在，再模拟悬停
+        if (!g.awaiting || g.awaiting.kind !== 'discard') {
+          g.awaiting = { kind: 'discard', player: 0, self: { hu: null, angang: [], bugang: [] } };
+          g.emitState();
+        }
+        const glMode = !!(window.GZScene3D && document.body.classList.contains('gl-table'));
+        const cv = document.querySelector('#gl');
+        const tipEl = document.querySelector('#tip');
+        // 重绘一次，保证 3D 里的“可点”标记和 awaiting 对齐
+        g.awaiting = { kind: 'discard', player: 0, self: { hu: null, angang: [], bugang: [] } };
+        g.emitState();
+        const fire = (id) => {
+          if (glMode) {
+            const p = window.GZScene3D.screenOf(id);
+            if (!p) return null;
+            cv.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: p.x, clientY: p.y }));
+            return p;
+          }
+          const node = document.querySelector('.hand-main .tile[data-tile="' + id + '"]');
+          if (!node) return null;
+          const r = node.getBoundingClientRect();
+          node.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: r.x + r.width / 2, clientY: r.y + 8 }));
+          return { x: r.x + r.width / 2, y: r.y + 8 };
+        };
+        // 找一张“打出去能听”的牌来演示，别拍到“不听牌”
+        const ids = Array.from(new Set(g.players[0].hand)).sort(function(a, b){ return a - b; });
+        let best = null;
+        for (const id of ids) {
+          const p = fire(id);
+          const txt = (tipEl && tipEl.textContent) || '';
+          if (p && txt.indexOf('听') >= 0 && txt.indexOf('不听') < 0) { best = { id, p, txt }; break; }
+        }
+        if (best) fire(best.id);
+        return { mode: glMode ? 'gl' : 'dom', best: best && { id: best.id, txt: best.txt } };
+      })();
+    `);
+    if (process.argv.includes('--diag')) console.log('TIP', JSON.stringify(tipInfo));
+    await sleep(180);
   } else if (shotMode === 'baoting') {
     await w.webContents.executeJavaScript(`
       (function(){
@@ -647,8 +713,34 @@ async function capture() {
       true;
     `);
     await sleep(4600);
-    await w.webContents.executeJavaScript(`window.__game.speed = 0.0004; true;`);
-    await sleep(500);
+    await w.webContents.executeJavaScript(`
+      (function(){
+        const g = window.__game;
+        g.speed = 0.00001;
+        g.askDiscard = function(){ return new Promise(function(){}); };
+        // 冻结成一局“正常进行中”的固定局面，截图别拍到残局或结算
+        g.phase = 'playing';
+        g.result = null;
+        g.turn = 2;
+        g.awaiting = null;
+        g.players[0].hand = [0,1,2,3,4,5,6,7,8,12,13,18,18];
+        g.players[0].melds = [];
+        g.players[0].discards = [22, 25, 20];
+        g.players[0].justDrawn = null;
+        g.players[0].botPlay = false;
+        g.players[1].hand = [9,10,11,12,13,14,15,16,17,19];
+        g.players[1].melds = [{ type: 'peng', tile: 26, tiles: [26,26,26], from: 2 }];
+        g.players[1].discards = [26, 3];
+        g.players[2].hand = [18,19,20,21,23,9,10,11,0,1,2,26,26];
+        g.players[2].melds = [];
+        g.players[2].discards = [7, 8, 17, 4];
+        g.players[3].hand = [3,4,5,12,13,14,19,20,21,24,26,0,1];
+        g.players[3].melds = [];
+        g.players[3].discards = [21, 11];
+        g.emitState();
+      })(); true;
+    `);
+    await sleep(700);
   }
 
   if (isShot) { w.showInactive(); await sleep(700); }
@@ -659,17 +751,27 @@ async function capture() {
 
   if (process.argv.includes('--diag')) {
     const info = await w.webContents.executeJavaScript(`JSON.stringify((() => {
-      const r = document.querySelector('.river[data-seat="0"]');
-      const t = r.firstElementChild;
-      const cs = t ? getComputedStyle(t) : null;
-      const b = t ? t.getBoundingClientRect() : null;
-      const hit = b ? document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) : null;
+      const box = (sel) => { const q = document.querySelector(sel); if (!q) return null; const r = q.getBoundingClientRect(); return { l: Math.round(r.left), t: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; };
+      const pick = (() => {
+        try {
+          if (!window.GZScene3D || !window.GZScene3D.pickAt) return null;
+          const c = document.querySelector('#gl');
+          if (!c) return null;
+          const r = c.getBoundingClientRect();
+          const out = [];
+          for (let j = 5; j <= 12; j++) for (let i = 1; i <= 9; i++) {
+            const hit = window.GZScene3D.pickAt(r.left + r.width * (i / 10), r.top + r.height * (j / 14));
+            if (hit != null) out.push([i, j, hit]);
+          }
+          return out.slice(0, 10);
+        } catch (e) { return String(e); }
+      })();
       return {
-        html: r.innerHTML.slice(0, 160),
-        tile: t ? { w: b.width, h: b.height, opacity: cs.opacity, bg: cs.backgroundImage.slice(0, 40), anim: cs.animationName, transform: cs.transform } : null,
-        hit: hit ? hit.className + '|' + hit.tagName : null,
-        hitPath: hit ? (function(){ let p=[], n=hit; while(n && p.length<4){ p.push(n.id||n.className); n=n.parentElement; } return p.join(' < '); })() : null,
-        stageTransform: getComputedStyle(document.querySelector('#stage')).transform
+        bodyClass: document.body.className,
+        glError: window.__glError || null,
+        glDebug: window.GZScene3D && window.GZScene3D.debug ? window.GZScene3D.debug() : null,
+        pick,
+        boxes: { canvas: box('#gl'), actions: box('#actions'), hudTop: box('.hud-top'), hudBottom: box('.hud-bottom'), tip: box('#tip') }
       };
     })())`);
     console.log('DIAG', info);

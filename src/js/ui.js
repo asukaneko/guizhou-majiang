@@ -192,10 +192,10 @@
         : '';
     const wild = isWild(t) ? '<span class="wild-tag">财神</span>' : '';
     const interactive = extra && extra.includes('playable') ? ` role="button" tabindex="0" aria-label="打出${TN(t)}"` : '';
-    return `<div class="tile${classes}" data-tile="${t}"${interactive}>${T.face(t)}${wild}${marker}</div>`;
+    return `<div class="tile${classes}" data-tile="${t}"${interactive}>${T.face(t)}<i class="cap" aria-hidden="true"></i>${wild}${marker}</div>`;
   }
 
-  function backHtml() { return `<div class="back">${T.back()}</div>`; }
+  function backHtml() { return `<div class="back">${T.back()}<i class="side" aria-hidden="true"></i><i class="cap" aria-hidden="true"></i></div>`; }
 
   function plateHtml(p, id) {
     const score = game.scores[id];
@@ -225,6 +225,15 @@
     }).join('');
   }
 
+  /** 四方牌墙：一排牌背排成墙，不再是一根木条 */
+  function buildWalls() {
+    const perRow = 26;
+    const tile = '<div class="wall-tile"><img class="face" src="assets/tiles/Back.svg" alt="" draggable="false"><i class="cap" aria-hidden="true"></i></div>';
+    document.querySelectorAll('.wall-strip').forEach((strip) => {
+      strip.innerHTML = new Array(perRow).fill(tile).join('');
+    });
+  }
+
   function buildSeats() {
     document.querySelectorAll('.seat').forEach((seat) => {
       const id = +seat.dataset.seat;
@@ -234,9 +243,12 @@
         seat.innerHTML = '<div class="plate"></div><div class="hand"></div><div class="melds"></div>';
       }
     });
+    document.querySelectorAll('.hud-seat').forEach((node) => { node.innerHTML = '<div class="plate"></div>'; });
+    buildWalls();
   }
 
   const seatEl = (id) => document.querySelector(`.seat[data-seat="${id}"]`);
+  const hudEl = (id) => document.querySelector(`.hud-seat[data-seat="${id}"]`);
 
   /* ---------------- 渲染 ---------------- */
 
@@ -245,6 +257,43 @@
     node._sig = html;
     node.innerHTML = html;
     return true;
+  }
+
+  let glOn = false;
+
+  /** 挂上 three.js 牌桌；手机或无 WebGL 时继续用 DOM 牌桌 */
+  function mountGL() {
+    if (glOn) return true;
+    if (!game || document.body.classList.contains('mobile-table')) return false;
+    const cv = $('#gl');
+    if (!cv || !window.GZScene3D) return false;
+    if (!window.GZScene3D.init(cv)) return false;
+    window.GZScene3D.onDiscard((tile) => {
+      const a = game && game.awaiting;
+      if (a && a.kind === 'discard' && a.player === 0 && !a.auto) {
+        Sound.ensure();
+        game.humanDiscard(tile);
+      }
+    });
+    window.GZScene3D.onTip((tile, x, y) => {
+      if (tile == null) { if (tipTile !== null) hideTip(); return; }
+      const a = game && game.awaiting;
+      if (!a || a.kind !== 'discard' || a.player !== 0 || a.auto) { if (tipTile !== null) hideTip(); return; }
+      showTip(tile, x, y);
+    });
+    document.body.classList.add('gl-table');
+    glOn = true;
+    return true;
+  }
+
+  function syncScene() {
+    if (!glOn || !game) return;
+    window.GZScene3D.sync(game, {
+      round: el.round.textContent,
+      wall: el.wall.textContent,
+      turn: el.turn.textContent
+    });
+    placeTingBar();
   }
 
   function render() {
@@ -258,6 +307,7 @@
     renderActions();
     renderActive();
     renderReview();
+    syncScene();
   }
 
   function hideReview() {
@@ -306,7 +356,13 @@
   function renderSeats() {
     game.players.forEach((p) => {
       const seat = seatEl(p.id);
-      setHtml(seat.querySelector('.plate'), plateHtml(p, p.id));
+      // 信息牌放屏幕层（不随桌面倾斜）；没有 #hud 时退回座位里的那块
+      const html = plateHtml(p, p.id);
+      const hud = hudEl(p.id);
+      const hudPlate = hud && hud.querySelector('.plate');
+      if (hudPlate) setHtml(hudPlate, html);
+      const inSeat = seat.querySelector('.plate');
+      if (inSeat) setHtml(inSeat, html);
       setHtml(seat.querySelector('.melds'), meldsHtml(p, p.id));
       if (p.id !== 0) {
         const n = p.handCount != null ? p.handCount : (p.hand ? p.hand.length : 0);
@@ -330,13 +386,39 @@
     let html = hand.map((t) => faceHtml(t, canPlay ? 'playable' : '')).join('') +
       (drawn != null ? faceHtml(drawn, 'drawn' + (canPlay ? ' playable' : '')) : '');
     // 听牌：按手牌样式排在右侧，每张角上标可见剩张
-    if (drawn == null) html += tingTilesHtml();
+    const strip = drawn == null ? tingStripHtml() : '';
+    const bar = $('#ting-bar');
+    if (glOn) {
+      // 3D 牌桌：DOM 手牌是隐藏的，候选牌挂到屏幕层、贴在 3D 手牌右端
+      if (bar) {
+        setHtml(bar, strip);
+        bar.classList.toggle('hidden', !strip);
+        placeTingBar();
+      }
+    } else {
+      html += strip;
+      if (bar) bar.classList.add('hidden');
+    }
     setHtml(node, html);
     node.classList.toggle('my-turn', canPlay);
   }
 
+  /** 把听牌候选条对到 3D 手牌右端（舞台有缩放，要换算成局部坐标） */
+  function placeTingBar() {
+    const bar = $('#ting-bar');
+    if (!bar || bar.classList.contains('hidden')) return;
+    if (!glOn || !window.GZScene3D || !window.GZScene3D.handEnd) return;
+    const pt = window.GZScene3D.handEnd();
+    const stage = el.stage;
+    if (!pt || !stage) return;
+    const sr = stage.getBoundingClientRect();
+    const k = sr.width / (stage.offsetWidth || sr.width) || 1;
+    bar.style.left = ((pt.x - sr.left) / k + 8) + 'px';
+    bar.style.top = ((pt.y - sr.top) / k + 6) + 'px';
+  }
+
   /** 听牌张（手牌样式 + 剩余张数角标），最多展示 4 张，其余用 +N */
-  function tingTilesHtml() {
+  function tingStripHtml() {
     const ting = game.tingOf(0);
     if (!ting || !ting.tiles.length) return '';
     const visible = visibleCounts();
@@ -393,7 +475,10 @@
 
   function renderActive() {
     game.players.forEach((p) => {
-      seatEl(p.id).classList.toggle('active', game.phase !== 'ended' && game.turn === p.id);
+      const on = game.phase !== 'ended' && game.turn === p.id;
+      seatEl(p.id).classList.toggle('active', on);
+      const hud = hudEl(p.id);
+      if (hud) hud.classList.toggle('active', on);
     });
   }
 
@@ -556,13 +641,17 @@
     2: 'left:50%; top:210px; transform:translateX(-50%);',
     3: 'left:210px; top:300px;'
   };
+  // 3D 牌桌里自己的手牌更高一点，碰杠提示跟着往下压
+  const CALL_POS_GL = Object.assign({}, CALL_POS, {
+    0: 'left:50%; bottom:372px; transform:translateX(-50%);'
+  });
 
   function showCall(seat, text) {
     const div = document.createElement('div');
     div.className = 'call';
     div.textContent = text;
     div.dataset.seat = seat;
-    div.style.cssText = CALL_POS[seat] || '';
+    div.style.cssText = (glOn ? CALL_POS_GL : CALL_POS)[seat] || '';
     el.calls.appendChild(div);
     setTimeout(() => div.remove(), 1100);
   }
@@ -1012,6 +1101,7 @@
 
     /* 鼠标停在手牌上：显示打出去之后听什么、还剩几张 */
     el.stage.addEventListener('mousemove', (e) => {
+      if (glOn) return; // 3D 牌桌自己在 canvas 上处理悬停
       if (window.matchMedia('(pointer: coarse)').matches) return;
       const node = e.target && e.target.closest ? e.target.closest('.hand-main .tile') : null;
       const a = game && game.awaiting;
@@ -1119,6 +1209,7 @@
       (box.clientHeight - 4) / 740
     );
     el.stage.style.transform = `scale(${k})`;
+    placeTingBar();
   }
 
   /* ---------------- 启动 / 大厅 ↔ 牌桌 ↔ 联机 ---------------- */
@@ -1130,7 +1221,7 @@
     document.body.classList.toggle('in-online', name === 'online');
     document.body.classList.toggle('in-game', name === 'game');
     window.GZChat.setView(name, !!game?.isRemote);
-    if (name === 'game') window.GZViewport.enter();
+    if (name === 'game') { window.GZViewport.enter(); mountGL(); }
     else window.GZViewport.leave();
     fit();
   }
@@ -1343,10 +1434,33 @@
     });
   }
 
+  /** 左上角帧率：按 rAF 采样，0.5 秒刷一次；卡顿时变色 */
+  function startFps() {
+    const node = $('#fps');
+    if (!node || typeof requestAnimationFrame !== 'function' || typeof performance === 'undefined') return;
+    let frames = 0, last = performance.now();
+    const tick = (now) => {
+      frames++;
+      const dt = now - last;
+      if (dt >= 500) {
+        const fps = Math.round((frames * 1000) / dt);
+        node.textContent = fps + ' FPS';
+        node.classList.toggle('slow', fps < 45);
+        // 弹层盖住牌桌时这个数字没意义，也挡视线，先藏起来
+        node.style.visibility = document.querySelector('#overlay:not(.hidden)') ? 'hidden' : '';
+        frames = 0;
+        last = now;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
   function start() {
     cacheDom();
     buildSeats();
     fit();
+    startFps();
     window.addEventListener('resize', fit);
     window.visualViewport?.addEventListener('resize', fit);
     window.visualViewport?.addEventListener('scroll', fit);
