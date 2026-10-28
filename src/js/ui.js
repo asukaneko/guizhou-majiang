@@ -272,8 +272,9 @@
       const a = game && game.awaiting;
       if (a && a.kind === 'discard' && a.player === 0 && !a.auto) {
         Sound.ensure();
-        game.humanDiscard(tile);
+        return game.humanDiscard(tile);
       }
+      return false;
     });
     window.GZScene3D.onTip((tile, x, y) => {
       if (tile == null) { if (tipTile !== null) hideTip(); return; }
@@ -281,6 +282,7 @@
       if (!a || a.kind !== 'discard' || a.player !== 0 || a.auto) { if (tipTile !== null) hideTip(); return; }
       showTip(tile, x, y);
     });
+    window.GZScene3D.onLayout(placeTingBar);
     document.body.classList.add('gl-table');
     glOn = true;
     return true;
@@ -413,8 +415,16 @@
     if (!pt || !stage) return;
     const sr = stage.getBoundingClientRect();
     const k = sr.width / (stage.offsetWidth || sr.width) || 1;
-    bar.style.left = ((pt.x - sr.left) / k + 8) + 'px';
-    bar.style.top = ((pt.y - sr.top) / k + 6) + 'px';
+    const stageWidth = stage.offsetWidth || sr.width / k;
+    let left = (pt.x - sr.left) / k + 8;
+    let top = (pt.y - sr.top) / k + 6;
+    if (left + bar.offsetWidth > stageWidth - 12) {
+      // 放大的手牌占满横向空间时，把候选条放在手牌上方并收进画布。
+      left = Math.max(12, stageWidth - bar.offsetWidth - 12);
+      top = (pt.top - sr.top) / k - 10;
+    }
+    bar.style.left = left + 'px';
+    bar.style.top = top + 'px';
   }
 
   /** 听牌张（手牌样式 + 剩余张数角标），最多展示 4 张，其余用 +N */
@@ -1223,6 +1233,7 @@
     window.GZChat.setView(name, !!game?.isRemote);
     if (name === 'game') { window.GZViewport.enter(); mountGL(); }
     else window.GZViewport.leave();
+    window.GZScene3D?.setActive(name === 'game');
     fit();
   }
 
@@ -1434,18 +1445,31 @@
     });
   }
 
-  /** 左上角帧率：按 rAF 采样，0.5 秒刷一次；卡顿时变色 */
+  /** 3D 显示实际动画绘制帧率；静止时按需绘制，DOM 兜底显示页面刷新频率。 */
   function startFps() {
     const node = $('#fps');
     if (!node || typeof requestAnimationFrame !== 'function' || typeof performance === 'undefined') return;
     let frames = 0, last = performance.now();
+    let glSample = null;
     const tick = (now) => {
       frames++;
       const dt = now - last;
       if (dt >= 500) {
-        const fps = Math.round((frames * 1000) / dt);
-        node.textContent = fps + ' FPS';
-        node.classList.toggle('slow', fps < 45);
+        let fps = Math.round((frames * 1000) / dt);
+        if (glOn && !document.body.classList.contains('mobile-table')) {
+          const sample = window.GZScene3D.stats();
+          const elapsed = glSample ? sample.activeMs - glSample.activeMs : sample.activeMs;
+          const count = glSample ? sample.activeFrames - glSample.activeFrames : sample.activeFrames;
+          fps = elapsed > 0 ? Math.round(count * 1000 / elapsed) : null;
+          node.textContent = fps == null ? '3D · 静止' : `3D ${fps} FPS`;
+          node.title = '实际动画绘制帧率；静止时按需绘制';
+          glSample = sample;
+        } else {
+          node.textContent = fps + ' FPS';
+          node.title = '页面刷新回调频率';
+          glSample = null;
+        }
+        node.classList.toggle('slow', fps != null && fps < 45);
         // 弹层盖住牌桌时这个数字没意义，也挡视线，先藏起来
         node.style.visibility = document.querySelector('#overlay:not(.hidden)') ? 'hidden' : '';
         frames = 0;

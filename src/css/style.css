@@ -3053,5 +3053,6 @@ body.gl-table #scene { display: none; }
 body.mobile-table.in-game #fps { left: 8px; top: 6px; font-size: 10px; }
 /* 3D 视角低，手牌靠近屏幕下沿，按钮抬高一点别压住牌 */
 body.gl-table #actions { bottom: 300px; }
+body.gl-table #hud .hud-bottom { bottom: 160px; }
 body.mobile-table.in-game #gl { display: none !important; }
 body.mobile-table.in-game #scene { display: block; }
