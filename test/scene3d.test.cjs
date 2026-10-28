@@ -20,6 +20,8 @@ async function table({ reduced = false, beforeReady } = {}) {
     render(scene, camera) {
       scene.updateMatrixWorld(true); camera.updateMatrixWorld(true);
       this.scene = scene; this.camera = camera; this.calls++;
+      this.shadowUpdates = (this.shadowUpdates || 0) + (this.shadowMap.needsUpdate ? 1 : 0);
+      this.shadowMap.needsUpdate = false;
     }
   }
   class Raycaster extends THREE.Raycaster {
@@ -294,4 +296,172 @@ test('3D：60/120/144Hz 和不均匀帧间隔在同一时刻得到相同悬停�
     near(pose.hover, poses[0].hover);
     near(pose.position.distanceTo(poses[0].position), 0);
   }
+});
+
+test('桌心灯带：四边对应本人/右家/对家/左家，持续呼吸不熄灭，呼吸帧复用静态阴影', async () => {
+  const g = game(), h = await table(); g.turn = 0; h.sync(g); h.frame();
+  const light = h.renderer.scene.getObjectByName('table-turn-light');
+  const track = h.renderer.scene.getObjectByName('table-turn-track');
+  const uniform = light.material.uniforms;
+  assert.equal(uniform.head.value, 0);
+  assert.equal(light.visible, true);
+  const vertices = track.geometry.getAttribute('position');
+  for (const [i, axis, sign] of [[0, 'z', 1], [32, 'x', 1], [64, 'z', -1], [96, 'x', -1]]) {
+    const a = new THREE.Vector3().fromBufferAttribute(vertices, i * 2);
+    const b = new THREE.Vector3().fromBufferAttribute(vertices, i * 2 + 1);
+    assert.ok(a.add(b).multiplyScalar(.5)[axis] * sign > .8);
+  }
+  const nodes = h.nodes.slice(), shadows = h.renderer.shadowUpdates;
+  h.to(1200); near(uniform.strength.value, .64);
+  h.to(2400); near(uniform.strength.value, 1);
+  assert.deepEqual(h.nodes, nodes);
+  assert.equal(h.renderer.shadowUpdates, shadows);
+  assert.ok(h.queued > 0, '呼吸时按刷新率持续绘制');
+});
+
+test('桌心灯带：沿边框换人、3到0跨边连续，快速再次换人从当前位置接续，重复快照不重置', async () => {
+  const g = game(), h = await table(); g.turn = 0; h.sync(g); h.frame(0);
+  const uniform = h.renderer.scene.getObjectByName('table-turn-light').material.uniforms;
+  g.turn = 1; h.sync(g);
+  near(uniform.head.value, 0);
+  h.to(210); near(uniform.head.value, .5);
+  h.sync(g); h.to(315);
+  near(uniform.head.value, .84375);
+  const current = uniform.head.value;
+  g.turn = 3; h.sync(g); near(uniform.head.value, current);
+  h.to(735); near(uniform.head.value, 3);
+  g.turn = 0; h.sync(g); near(uniform.head.value, 3);
+  h.to(945); near(uniform.head.value, 3.5);
+  h.to(1155); near(uniform.head.value, 0);
+  const count = h.nodes.length;
+  assert.equal(count, 53, '灯光过渡不改变牌的状态');
+});
+
+test('桌心灯带：结算渐灭后停止绘制，换局/换房不续播旧流光；减少动态效果时常亮', async () => {
+  const g = game(), h = await table(); g.turn = 0; h.sync(g); h.frame(0);
+  const light = h.renderer.scene.getObjectByName('table-turn-light');
+  g.turn = 1; h.sync(g); h.to(210);
+  g.roundNo++; h.sync(g); near(light.material.uniforms.head.value, 1);
+  g.phase = 'ended'; h.sync(g); h.to(300);
+  assert.ok(light.material.uniforms.strength.value > 0 && light.material.uniforms.strength.value < .5);
+  h.drain(); assert.equal(light.visible, false);
+  const next = game(); next.turn = 3; h.sync(next); h.frame();
+  near(light.material.uniforms.head.value, 3); assert.equal(light.visible, true);
+  h.media.matches = true; h.media.changed(); h.drain();
+  near(light.material.uniforms.strength.value, 1);
+  next.turn = 2; h.sync(next); h.drain(); near(light.material.uniforms.head.value, 2);
+  h.media.matches = false; h.media.changed(); h.frame();
+  assert.ok(h.queued > 0);
+  h.visibility(true); h.frame(); assert.equal(h.queued, 0);
+  next.turn = 0; h.sync(next); near(light.material.uniforms.head.value, 0);
+  h.visibility(false); h.frame(); assert.ok(h.queued > 0);
+  h.api.setActive(false); h.frame(); assert.equal(h.queued, 0);
+});
+
+test('联机桌心灯带：直接使用服务端旋转后的座位，不依赖昵称或轮次提示文字', async () => {
+  const { OnlineGame } = require('../server/online-game.js');
+  const { snapshot } = require('../server/serialize.js');
+  const server = new OnlineGame({ dealer: 2 }); server.phase = 'playing'; server.turn = 2;
+  const h = await table({ reduced: true });
+  for (let seat = 0; seat < 4; seat++) {
+    const state = snapshot(server, seat);
+    h.sync({ ...state, state }, { turn: '相同昵称' }); h.drain();
+    near(h.renderer.scene.getObjectByName('table-turn-light').material.uniforms.head.value, (2 - seat + 4) % 4);
+  }
+});
+
+test('灯带可见性：四边及拐角的实际投影深度均在面板贴图之前，亮芯正面朝向摄像机', async () => {
+  const g = game(), h = await table({ reduced: true }); g.turn = 0; h.sync(g); h.drain();
+  const scene = h.renderer.scene, camera = h.renderer.camera;
+  const light = scene.getObjectByName('table-turn-light');
+  let cap;
+  scene.traverse((node) => { if (node.isMesh && node.material.map?.image?.width === 512) cap = node; });
+  assert.ok(cap, '找到桌心文字贴图所在的平面');
+  assert.ok(light.material.uniforms.strength.value > .6);
+  const ray = new THREE.Raycaster();
+  const depthAt = (screen, height) => {
+    ray.setFromCamera(screen, camera);
+    const point = ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -height), new THREE.Vector3());
+    return point.project(camera).z * .5 + .5;
+  };
+  const position = light.geometry.getAttribute('position'), normal = light.geometry.getAttribute('normal');
+  for (let sample = 0; sample < 8; sample++) {
+    const i = sample * 32;
+    const a = new THREE.Vector3().fromBufferAttribute(position, i);
+    const b = new THREE.Vector3().fromBufferAttribute(position, i + 1);
+    const world = light.localToWorld(a.add(b).multiplyScalar(.5));
+    const point = world.clone().project(camera), screen = new THREE.Vector2(point.x, point.y);
+    const base = depthAt(screen, cap.position.y);
+    // WebGL 的 polygonOffsetFactor 乘以屏幕深度斜率，不能仅比较两个对象的世界高度。
+    const slope = Math.max(
+      Math.abs(depthAt(new THREE.Vector2(point.x + 2 / 1200, point.y), cap.position.y) - base),
+      Math.abs(depthAt(new THREE.Vector2(point.x, point.y + 2 / 740), cap.position.y) - base)
+    );
+    const panelDepth = base + (cap.material.polygonOffset ? cap.material.polygonOffsetFactor * slope : 0);
+    const lightDepth = point.z * .5 + .5;
+    assert.ok(lightDepth < panelDepth, `灯带第 ${sample} 个位置被面板的深度遮挡`);
+    const front = new THREE.Vector3().fromBufferAttribute(normal, i).transformDirection(light.matrixWorld);
+    assert.ok(front.dot(camera.position.clone().sub(world)) > 0, '灯带正面不能被背面剔除');
+  }
+});
+
+test('开场发牌：从庄家起分批进入四家，首摸/操作提示更新保留原批次，约一秒全部到位', async () => {
+  const g = game(), h = await table();
+  g.dealer = 2; g.phase = 'dealing'; g.awaiting = null; g.players[0].hand.pop();
+  h.sync(g, { opening: 1 }); h.frame(0);
+  const first = h.node('hand:2:0'), next = h.node('hand:3:0');
+  assert.equal(first.userData.motion.start, 0);
+  assert.equal(next.userData.motion.start, 42);
+  assert.equal(first.visible, true); assert.equal(next.visible, false);
+  assert.equal(h.api.pickAt(...Object.values(h.api.screenOf(9))), null, '尚未发到位的牌不能提前点中');
+  h.to(160);
+  assert.ok(first.position.distanceTo(first.userData.targetPosition) > .1);
+  const motion = first.userData.motion;
+  g.phase = 'playing'; g.players[2].handCount++;
+  h.sync(g, { opening: 1 });
+  assert.equal(first.userData.motion, motion, '补首摸不能重启已经发出的牌');
+  assert.ok(h.node('hand:2:13').userData.motion.deal);
+  h.to(1000);
+  assert.ok(h.nodes.every((n) => n.visible && !n.userData.motion));
+  for (const node of h.nodes) near(node.position.distanceTo(node.userData.targetPosition), 0);
+  h.sync(g, { opening: 0 }); h.drain();
+  h.sync(g, { opening: 1 }); h.drain();
+  assert.ok(h.nodes.every((n) => !n.userData.motion), '同一开场标识不能重复播放');
+});
+
+test('开场发牌：资源就绪后可启动已有实体；快速度先收到出牌时平滑收尾，保留真实牌局', async () => {
+  const g = game(), h = await table(); g.dealer = 0;
+  h.sync(g); h.drain();
+  const nodes = h.nodes.slice();
+  h.sync(g, { opening: 7 }); h.frame(h.now);
+  assert.deepEqual(h.nodes, nodes);
+  assert.ok(h.nodes.some((n) => n.userData.motion?.deal));
+  h.to(h.now + 120);
+  discard(g, 0, 26); h.sync(g, { opening: 0 });
+  assert.ok(h.nodes.every((n) => n.visible), '未发完的牌也必须恢复显示');
+  assert.ok(h.nodes.every((n) => !n.userData.motion?.deal));
+  h.drain();
+  assert.equal(h.node('river:0:0:26').userData.tileId, 26);
+  assert.deepEqual(g.players[0].discards, [26]);
+  assert.equal(g.players[0].hand.length, 13);
+  const midgame = game(); midgame.discardSeq = 4;
+  h.sync(midgame, { opening: 8 }); h.drain();
+  assert.ok(h.nodes.every((n) => !n.userData.motion), '中途重连不补播发牌动画');
+});
+
+test('开场发牌：后台/离开牌桌立即结束，减少动态效果时直接显示完整手牌', async () => {
+  const g = game(), h = await table(); g.dealer = 0;
+  h.sync(g, { opening: 1 }); h.to(100);
+  h.visibility(true); h.frame();
+  assert.ok(h.nodes.every((n) => n.visible && !n.userData.motion));
+  h.visibility(false); h.drain();
+  h.sync(g, { opening: 1 }); h.drain();
+  assert.ok(h.nodes.every((n) => !n.userData.motion));
+  const next = game(); next.dealer = 0;
+  h.sync(next, { opening: 2 }); h.to(h.now + 100);
+  h.api.setActive(false); h.frame();
+  assert.ok(h.nodes.every((n) => n.visible && !n.userData.motion));
+  const quiet = await table({ reduced: true });
+  quiet.sync(game(), { opening: 1 }); quiet.drain();
+  assert.ok(quiet.nodes.every((n) => n.visible && !n.userData.motion));
 });

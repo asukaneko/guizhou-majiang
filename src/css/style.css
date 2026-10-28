@@ -7,6 +7,7 @@
   --red: #c0392b;
   --stage-w: 1200px;
   --stage-h: 740px;
+  --chat-dock-width: 316px;
 }
 
 * { box-sizing: border-box; }
@@ -721,30 +722,45 @@ body.mobile-table.in-game { --tb-h: 42px; }
 
 #toast {
   position: absolute;
-  left: 24px;
-  bottom: 154px;
+  left: 50%;
+  top: clamp(96px, 23%, 190px);
+  bottom: auto;
+  width: min(640px, calc(100% - 40px));
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  z-index: 24;
+  align-items: center;
+  gap: 9px;
+  z-index: 80;
   pointer-events: none;
 }
 .toast-item {
-  padding: 6px 16px;
-  border-radius: 999px;
-  font-size: 12.5px;
-  color: #f2f6ef;
-  background: rgba(6, 20, 15, 0.9);
-  border: 1px solid rgba(231, 200, 120, 0.28);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
-  animation: toastIn 0.2s ease-out;
+  position: relative;
+  width: max-content;
+  max-width: 100%;
+  min-height: 46px;
+  padding: 12px 22px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: #edf4ff;
+  background: linear-gradient(180deg, #20334ef5, #0b192cf5);
+  border: 1px solid #a9c3e06b;
+  box-shadow: 0 10px 28px #02091580, inset 0 1px 0 #e1edff1f;
+  animation: toastIn 240ms cubic-bezier(.16, 1, .3, 1) both;
 }
+.toast-item.announce { color: #fff0c8; font-size: 16px; border-color: #f3ce83b3; box-shadow: 0 12px 32px #02091599, 0 0 20px #efb95b1f, inset 0 1px 0 #ffe8b533; }
 @keyframes toastIn {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(-14px) scale(.97); }
   to { opacity: 1; transform: none; }
 }
-.toast-item.out { opacity: 0; transition: opacity 0.3s ease; }
+@keyframes toastOut { to { opacity: 0; transform: translateY(-6px) scale(.98); } }
+.toast-item.out { animation: toastOut 180ms ease-in both; }
+body.in-game.chat-docked #toast { left: calc((100% - var(--chat-dock-width)) / 2); }
 
 /* ---------------- 弹层 ---------------- */
 
@@ -1685,8 +1701,6 @@ body.is-remote #btn-difficulty, body.is-remote #btn-reset-scores { display: none
 .round-ready-status { flex: 1 0 100%; margin: 0 0 4px; color: #b9cfc2; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .round-ready-status:empty { display: none; }
 .ol-seat-tag.ready { color: #b5edca; border-color: #52785d; }
-#toast { position: absolute; left: 20px; top: auto; bottom: 208px; align-items: flex-start; max-width: min(92%, 640px); width: max-content; transform: none; z-index: 80; pointer-events: none; }
-.toast-item { white-space: normal; line-height: 1.5; border-radius: 10px; }
 .mobile-hand-count { display: none; }
 .practice-settings { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 14px 16px; border: 1px solid #31483b; border-radius: 10px; background: #10231a; }
 .practice-settings strong { font-size: 14px; color: var(--paper); }
@@ -1785,11 +1799,11 @@ body.chat-open #app { position: fixed; top: var(--viewport-top, 0px); left: 0; }
   box-shadow: 0 8px 28px #0006; color: #e8f2ec;
 }
 body.chat-docked #room-chat { top: 56px; right: 8px; bottom: 8px; width: 300px; max-height: none; box-shadow: none; }
-body.chat-docked #stage-wrap { margin-right: 316px; }
+body.chat-docked #stage-wrap { margin-right: var(--chat-dock-width); }
 body.chat-docked.in-online #online { margin-right: 316px; }
 @media (min-width: 1440px) {
   body.chat-docked #room-chat { width: 340px; }
-  body.chat-docked #stage-wrap { margin-right: 356px; }
+  body.chat-docked { --chat-dock-width: 356px; }
   body.chat-docked.in-online #online { margin-right: 356px; }
 }
 .chat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid #31483b; flex-shrink: 0; }
@@ -1966,7 +1980,9 @@ body.mobile-table.in-game .review-melds { gap: 5px; margin-top: 5px; }
 body.mobile-table.in-game .review-melds .tile { width: 12px; height: 16px; }
 body.mobile-table.in-game .review-hand .wild-tag { font-size: 6px; line-height: 9px; padding: 0 1px; }
 body.mobile-table.in-game .call { top: 38% !important; bottom: auto !important; left: 50% !important; right: auto !important; transform: translateX(-50%) !important; font-size: 32px; }
-body.mobile-table.in-game #toast { top: 46px; }
+body.mobile-table.in-game #toast { top: clamp(62px, 21%, 100px); width: min(560px, calc(100% - 28px)); gap: 6px; }
+body.mobile-table.in-game .toast-item { min-height: 36px; padding: 8px 15px; font-size: 13px; border-radius: 10px; }
+body.mobile-table.in-game .toast-item.announce { font-size: 14px; }
 @container (max-height: 290px) {
   body.mobile-table.in-game .river { padding: 1px 2px; }
   body.mobile-table.in-game .river[data-seat="2"] { top: 58px; max-height: 30px; }
@@ -2184,8 +2200,7 @@ html, body { background: var(--navy); color: #edf2fb; }
 #round-review { background: #102039; border: 1px solid #90a6c42b; }
 .review-seat { background: #7894bd08; border-color: #8ca6c742; }
 .review-seat h3 span { color: #b1c4df; }
-#tip, .toast-item { background: #101f37f5; border-color: #f3ce8352; color: #e3ecf9; }
-.toast-item { border-radius: 8px; }
+#tip { background: #101f37f5; border-color: #f3ce8352; color: #e3ecf9; }
 .ol-field input, .ol-field select, .practice-settings select, .room-settings select, #chat-input { background: #091326; border-color: #6581a766; color: #e7effb; }
 .ol-badge { color: #b1c2da; }
 .ol-badge.on, .ol-seat-tag.bot { color: #a0e3da; border-color: #78d6cf66; background: #78d6cf10; }
@@ -2848,11 +2863,22 @@ body.mobile-table.in-game .plate { background: #12233bea; }
   box-shadow: 0 0 0 1px rgba(243, 206, 131, .28), inset 0 1px 0 rgba(255, 232, 180, .18);
 }
 .cp-wind { width: 24px; height: 24px; font-size: 14px; }
-.w-n { left: 50%; top: 5px; margin-left: -12px; }
-.w-s { left: 50%; bottom: 5px; margin-left: -12px; }
-.w-w { left: 6px; top: 50%; margin-top: -12px; }
-.w-e { right: 6px; top: 50%; margin-top: -12px; }
+.w-n { right: 12px; top: 12px; }
+.w-s { left: 12px; bottom: 12px; }
+.w-w { left: 12px; top: 12px; }
+.w-e { right: 12px; bottom: 12px; }
 .cp-stack, .cp-ring { display: none; }
+
+.cp-turn-track { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; overflow: visible; pointer-events: none; }
+.cp-turn-track use { fill: none; stroke-linecap: round; }
+.cp-turn-groove { stroke: #06101d; stroke-width: .085; }
+.cp-turn-beam { opacity: 0; transition: opacity 180ms ease; }
+.turn-lit .cp-turn-beam { opacity: 1; }
+.cp-turn-sweep { stroke-dasharray: 44 356; stroke-dashoffset: var(--turn-offset, 22); transition: stroke-dashoffset var(--turn-travel, 420ms) cubic-bezier(.4, 0, .6, 1); }
+.cp-turn-halo { stroke: #ffb83e; stroke-width: .13; opacity: .58; filter: drop-shadow(0 0 3px #ffc34a); }
+.cp-turn-core { stroke: #fff0a6; stroke-width: .038; }
+.turn-lit .cp-turn-beam { animation: turn-breathe 2400ms ease-in-out infinite; }
+@keyframes turn-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .64; } }
 
 /* ---------------- 屏幕层：座位信息牌 ---------------- */
 #hud { position: absolute; inset: 0; z-index: 18; pointer-events: none; }
@@ -2991,6 +3017,14 @@ body.mobile-table.in-game .cp-body { gap: 0; }
 body.mobile-table.in-game .cp-round { font-size: 9px; letter-spacing: 1px; }
 body.mobile-table.in-game .cp-num { font-size: 20px; }
 body.mobile-table.in-game .cp-turn { font-size: 10px; margin-top: 0; }
+@container (max-height: 290px) {
+  body.mobile-table.in-game .cp-turn-track {
+    inset: auto; left: 50%; top: 44%; width: 118px; height: 54px; transform: translate(-50%, -50%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cp-turn-sweep, .cp-turn-beam { animation: none !important; transition: none !important; }
+}
 
 
 @media (prefers-reduced-motion: reduce) {

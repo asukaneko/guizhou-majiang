@@ -108,12 +108,12 @@ test('网络：旧 socket 的延迟 close/message 不影响新连接；会话先
 
 test('网页脚本集成：联机换局、结算看牌、回房实时刷新、完桌重新配置并开启新桌', async () => {
   // DOM 仅用于验证消息与渲染代码能协作；实际视觉布局由设备验收。
-  const elements = new Map(), listeners = new Map(), sockets = [], timeouts = [];
+  const elements = new Map(), listeners = new Map(), sockets = [], timeouts = [], animations = [];
   class Element {
     constructor(id = '') {
       this.id = id; this.innerHTML = ''; this.dataset = {}; this.children = new Map();
       this.nodes = []; this.value = ''; this.scrollTop = 0; this.scrollHeight = 0;
-      this.style = { setProperty() {} }; this.clientWidth = 844; this.clientHeight = 348;
+      this.style = { setProperty(name, value) { this[name] = value; } }; this.clientWidth = 844; this.clientHeight = 348;
       this.events = new Map(); const classes = new Set();
       this.classList = {
         add: (...cs) => cs.forEach((c) => classes.add(c)), remove: (...cs) => cs.forEach((c) => classes.delete(c)),
@@ -127,10 +127,29 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
     replaceChildren(...nodes) { this.nodes = nodes; }
     append(...nodes) { this.nodes.push(...nodes); }
     get childElementCount() { return this.nodes.length; }
+    get firstElementChild() { return this.nodes[0]; }
     querySelector(s) { if (!this.children.has(s)) this.children.set(s, new Element()); return this.children.get(s); }
-    querySelectorAll() { return []; }
-    appendChild() {}
-    remove() {}
+    querySelectorAll(selector) {
+      if (![':scope > .tile[data-tile]', ':scope > .back'].includes(selector)) return [];
+      const sig = selector + this.innerHTML;
+      if (this._cardsSig !== sig) {
+        this._cardsSig = sig;
+        const pattern = selector.endsWith('.back') ? /<div class="back">/g : /<div class="tile[^\"]*" data-tile=/g;
+        this._cards = Array.from(this.innerHTML.matchAll(pattern), () => new Element());
+      }
+      return this._cards;
+    }
+    animate(keyframes, options) {
+      const animation = { node: this, keyframes, options, cancelled: false, cancel() { this.cancelled = true; } };
+      animations.push(animation); return animation;
+    }
+    appendChild(node) { this.nodes.push(node); node.parent = this; return node; }
+    remove() {
+      if (!this.parent) return;
+      const i = this.parent.nodes.indexOf(this);
+      if (i >= 0) this.parent.nodes.splice(i, 1);
+      this.parent = null;
+    }
   }
   const html = fs.readFileSync(path.join(__dirname, '../src/index.html'), 'utf8');
   for (const [, id] of html.matchAll(/\bid="([^"]+)"/g)) elements.set('#' + id, new Element(id));
@@ -160,7 +179,8 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
   const ctx = vm.createContext({ document: doc, localStorage: storage(), sessionStorage: storage(),
     GZRules: R, GZAI: require('../src/js/ai.js'), GZGame: require('../src/js/game.js'),
     location: { protocol: 'http:', host: 'localhost:8788' }, WebSocket: Socket,
-    innerWidth: 390, innerHeight: 844, matchMedia: () => ({ matches: true }),
+    innerWidth: 390, innerHeight: 844, matchMedia: (q) => ({ matches: q.includes('pointer: coarse') }),
+    getComputedStyle: () => ({ transform: 'none' }),
     navigator: { userActivation: { isActive: false } }, screen: {},
     addEventListener() {}, setTimeout: (fn, ms) => { timeouts.push({ fn, ms }); return timeouts.length; },
     setInterval: () => 1, clearTimeout() {}, clearInterval() {}, console });
@@ -224,6 +244,21 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
   assert.ok(doc.body.classList.contains('in-game'));
   assert.ok(doc.body.classList.contains('rotate-game'));
   receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [] });
+  const center = elements.get('#center-panel');
+  const notices = elements.get('#toast');
+  receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [{ type:'msg', text:'联机提示：对家报听' }] });
+  assert.equal(notices.nodes.at(-1).textContent, '联机提示：对家报听');
+  assert.equal(notices.nodes.at(-1).className, 'toast-item announce');
+  assert.ok(center.classList.contains('turn-lit'), '手机桌心显示当前玩家的灯带');
+  assert.equal(center.style['--turn-offset'], String(22 - g.turn * 100));
+  assert.equal(center.style['--turn-travel'], '0ms', '首次进入直接亮在正确座位');
+  const savedTurn = g.turn;
+  g.turn = (g.turn + 1) % 4;
+  receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [] });
+  assert.equal(center.style['--turn-travel'], '420ms');
+  assert.equal(center.style['--turn-offset'], String(22 - (savedTurn + 1) * 100));
+  g.turn = savedTurn;
+  receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [] });
   assert.equal(elements.get('#btn-auto').textContent, '人机代打 关');
   assert.equal(elements.get('#btn-new').disabled, true, '联机中本局结束后才能开下一局');
   assert.equal(elements.get('#btn-speed').disabled, false);
@@ -245,6 +280,7 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
   const ended = { ...snapshot(g, 0), roomId: room.id };
   receive({ t: 'snapshot', snap: ended, fx: [] });
   receive({ t: 'snapshot', snap: ended, fx: [] });
+  assert.equal(center.classList.contains('turn-lit'), false, '结算后关闭手机回合灯带');
   assert.equal(ctx.GZProfile.summary().games, 1);
   ctx.GZUI.showResult(ctx.__game.result);
   assert.equal(elements.get('#overlay').classList.contains('hidden'), false);
@@ -352,6 +388,17 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
   ctx.__ui.enterMode('classic');
   assert.ok(doc.body.classList.contains('rotate-game'), '练习桌也自动横屏');
   const previous = ctx.__game;
+  assert.ok(doc.body.classList.contains('dealing-table'), '进入本地新局时开始发牌');
+  assert.ok(animations.length >= 52, '手机四家手牌均有入场动画');
+  assert.ok(animations.every((a) => a.options.duration === 300 && a.options.fill === 'backwards'));
+  const openingCount = animations.length;
+  previous.emitState();
+  assert.equal(animations.length, openingCount, '同一手牌重复状态不重新发牌');
+  for (let i = 0; i < 5; i++) previous.emit('message', `本地提示 ${i} <img src=x>`);
+  assert.equal(notices.childElementCount, 3, '密集本地播报最多保留三条');
+  assert.equal(notices.nodes.at(-1).textContent, '本地提示 4 <img src=x>');
+  assert.equal(notices.nodes.at(-1).innerHTML, '');
+  assert.equal(notices.nodes.at(-1).className, 'toast-item announce');
   assert.equal(previous.aiDifficulty, 'hard');
   assert.equal(previous.botSpeed, 'fast');
   assert.equal(previous.speed, ctx.GZAI.BOT_SPEEDS.fast.value);
@@ -364,6 +411,7 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
   elements.get('#btn-new').events.get('click')();
   assert.notEqual(ctx.__game, previous);
   assert.equal(previous.phase, 'ended');
+  assert.ok(animations.slice(0, openingCount).every((a) => a.cancelled), '换局清理旧发牌动画');
   assert.equal(ctx.__game.roundNo, previous.roundNo + 1);
   assert.equal(ctx.__game.aiDifficulty, 'easy');
   assert.equal(ctx.__game.botSpeed, 'slow');
@@ -391,6 +439,7 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
   assert.equal((sourceHand.match(/data-tile=/g) || []).length, 13, '抢杠者展示被抢后的剩余手牌');
   clickAction('close');
   ctx.GZUI.showLobby();
+  assert.equal(doc.body.classList.contains('dealing-table'), false, '返回大厅清理开场状态');
   assert.ok(review.classList.contains('hidden'), '返回大厅收起牌面');
   ctx.__game.phase = 'ended';
 });

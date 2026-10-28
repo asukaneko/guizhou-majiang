@@ -260,6 +260,60 @@
   }
 
   let glOn = false;
+  let opening = null, openingId = 0, openingSeen = { game: null, round: null };
+  const openingNow = () => window.performance?.now() ?? Date.now();
+
+  function stopOpening() {
+    if (!opening) return;
+    clearTimeout(opening.timer);
+    for (const animation of opening.animations) animation.cancel();
+    opening = null;
+    document.body.classList.remove('dealing-table');
+  }
+
+  function updateOpening() {
+    const round = game.state?.roundId || game.roundNo;
+    const freshHand = ['dealing', 'playing'].includes(game.phase) && !game.discardSeq &&
+      game.players.every((p) => !p.discards.length && !p.melds.length &&
+        (p.handCount ?? p.hand.length) >= 13 && (p.handCount ?? p.hand.length) <= 14);
+    if (opening && (opening.game !== game || opening.round !== round || !freshHand)) stopOpening();
+    if (!document.body.classList.contains('in-game') ||
+        (glOn && !document.body.classList.contains('mobile-table') && !window.GZScene3D.ready) ||
+        (openingSeen.game === game && openingSeen.round === round)) return;
+    openingSeen = { game, round };
+    if (!freshHand || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const session = { id: ++openingId, game, round, start: openingNow(), animations: new Set() };
+    opening = session;
+    document.body.classList.add('dealing-table');
+    session.timer = setTimeout(() => {
+      if (opening !== session) return;
+      stopOpening();
+      syncScene();
+    }, 1000);
+  }
+
+  function animateOpeningHands() {
+    if (!opening || (glOn && !document.body.classList.contains('mobile-table'))) return;
+    const elapsed = openingNow() - opening.start;
+    const directions = [[0, -52], [-52, 0], [0, 52], [52, 0]];
+    for (let seat = 0; seat < 4; seat++) {
+      const hand = seatEl(seat).querySelector(seat === 0 ? '.hand-main' : '.hand');
+      const nodes = hand.querySelectorAll(seat === 0 ? ':scope > .tile[data-tile]' : ':scope > .back');
+      nodes.forEach((node, i) => {
+        if (node._dealOpening === opening.id || typeof node.animate !== 'function') return;
+        node._dealOpening = opening.id;
+        const order = Math.floor(i / 4) * 4 + (seat - game.dealer + 4) % 4;
+        const delay = order * 42 + (i % 4) * 18 - elapsed;
+        if (delay + 300 <= 0) return;
+        const base = window.getComputedStyle(node).transform;
+        const [x, y] = directions[seat];
+        opening.animations.add(node.animate([
+          { opacity: 0, transform: `translate(${x}px, ${y}px) scale(.88) ${base === 'none' ? '' : base}` },
+          { opacity: 1, transform: base }
+        ], { duration: 300, delay, fill: 'backwards', easing: 'cubic-bezier(.2,.7,.3,1)' }));
+      });
+    }
+  }
 
   /** 挂上 three.js 牌桌；手机或无 WebGL 时继续用 DOM 牌桌 */
   function mountGL() {
@@ -268,6 +322,7 @@
     const cv = $('#gl');
     if (!cv || !window.GZScene3D) return false;
     if (!window.GZScene3D.init(cv)) return false;
+    window.GZScene3D.onReady(() => { if (document.body.classList.contains('in-game')) render(); });
     window.GZScene3D.onDiscard((tile) => {
       const a = game && game.awaiting;
       if (a && a.kind === 'discard' && a.player === 0 && !a.auto) {
@@ -293,7 +348,8 @@
     window.GZScene3D.sync(game, {
       round: el.round.textContent,
       wall: el.wall.textContent,
-      turn: el.turn.textContent
+      turn: el.turn.textContent,
+      opening: opening?.id || 0
     });
     placeTingBar();
   }
@@ -301,6 +357,7 @@
   function render() {
     if (!game || game.players.length !== 4) return;
     document.body.classList.toggle('is-remote', !!game.isRemote);
+    updateOpening();
     refreshControls();
     renderSeats();
     renderRivers();
@@ -310,6 +367,7 @@
     renderActive();
     renderReview();
     syncScene();
+    animateOpeningHands();
   }
 
   function hideReview() {
@@ -477,10 +535,29 @@
     return game.turn === 0 ? '轮到你出牌' : `轮到 ${p.name}`;
   }
 
+  let panelTurn = { game: null, round: null, seat: -1, phase: 0 };
   function renderCenter() {
     el.round.textContent = `第 ${game.roundNo} 局${game.totalRounds ? ` / ${game.totalRounds}` : ''}`;
     el.wall.textContent = game.isRemote ? game.wallLeft : game.wall.length;
     el.turn.textContent = turnLabel();
+    const node = $('#center-panel');
+    const seat = game.phase === 'playing' && Number.isInteger(game.turn) && game.turn >= 0 && game.turn < 4 ? game.turn : -1;
+    const round = game.state?.roundId || game.roundNo;
+    if (panelTurn.game === game && panelTurn.round === round && panelTurn.seat === seat) return;
+    const animate = panelTurn.game === game && panelTurn.round === round && panelTurn.seat >= 0 && seat >= 0;
+    let phase = seat < 0 ? panelTurn.phase : seat;
+    if (animate) {
+      const sweep = node.querySelector('.cp-turn-core');
+      const offset = typeof window.getComputedStyle === 'function' ? parseFloat(window.getComputedStyle(sweep).strokeDashoffset) : NaN;
+      const current = Number.isFinite(offset) ? (22 - offset) / 100 : panelTurn.phase;
+      let delta = (seat - ((current % 4 + 4) % 4) + 4) % 4;
+      if (delta > 2) delta -= 4;
+      phase = current + delta;
+    }
+    node.style.setProperty('--turn-offset', String(22 - phase * 100));
+    node.style.setProperty('--turn-travel', animate ? '420ms' : '0ms');
+    node.classList.toggle('turn-lit', seat >= 0);
+    panelTurn = { game, round, seat, phase };
   }
 
   function renderActive() {
@@ -626,16 +703,16 @@
 
   /* ---------------- 反馈 ---------------- */
 
-  const TOAST_MAX = 4;        // 同时最多 4 条，密集播报时挤掉最早的
-  const ANNOUNCE_MS = 2400;   // 旁白类提示（冲锋鸡/冲幺筒/杠分…）留久一点
+  const TOAST_MAX = 3;        // 限制遮挡，较早的提示先退场
+  const ANNOUNCE_MS = 3400;
 
   function toast(text, ms) {
     const div = document.createElement('div');
-    div.className = 'toast-item';
+    div.className = ms === ANNOUNCE_MS ? 'toast-item announce' : 'toast-item';
     div.textContent = text;
     el.toast.appendChild(div);
     while (el.toast.childElementCount > TOAST_MAX) el.toast.firstElementChild.remove();
-    setTimeout(() => { div.classList.add('out'); setTimeout(() => div.remove(), 320); }, ms || 2200);
+    setTimeout(() => { div.classList.add('out'); setTimeout(() => div.remove(), 200); }, ms || 3000);
   }
 
   /** 吃炮门槛挡下时的提示：抢杠与普通吃炮分开说 */
@@ -1226,7 +1303,7 @@
 
   /** body 状态类：视图相关的 CSS 全走这里 */
   function setView(name) {
-    if (name !== 'game') hideReview();
+    if (name !== 'game') { hideReview(); stopOpening(); }
     document.body.classList.toggle('in-lobby', name === 'lobby');
     document.body.classList.toggle('in-online', name === 'online');
     document.body.classList.toggle('in-game', name === 'game');
@@ -1352,6 +1429,7 @@
     }
     createGame(id);
     setView('game');
+    render();
     if (el.brandSub) el.brandSub.textContent = `${game.mode.name} · 单机版`;
     toast(`进入「${game.mode.name}」· 第 ${game.roundNo} 局`, 2200);
   }

@@ -21,18 +21,22 @@
     ivory: 0xf7f1e0, ivoryEdge: 0xe8ddc4, amber: 0xe0a044, amberDeep: 0xb87a2a,
     felt: 0x17365c, wood: 0x3a2418, brass: 0xc9a15c
   } };
-  const MOTION = { move: 210, draw: 260, discard: 360, meld: 280, hover: 32 };
+  const MOTION = { move: 210, draw: 260, discard: 360, meld: 280, deal: 300, hover: 32 };
+  const TURN_LIGHT = { inset: .11, radius: .22, period: 2400, travel: 420, fade: 180 };
 
   let renderer = null, scene = null, camera = null, canvas = null;
   let seatGroups = [], tileLayer = null, panelMesh = null, panelTex = null, panelCanvas = null;
   let assets = { face: {}, back: null };
   let ready = false, needsRender = false, frameId = 0, active = true;
   let sig = '';
-  let hoverTile = null, pressedTile = null, discardPick = null, tipHandler = null, discardHandler = null, layoutHandler = null;
+  let hoverTile = null, pressedTile = null, discardPick = null, tipHandler = null, discardHandler = null, layoutHandler = null, readyHandler = null;
+  let deal = null, lastDealId = 0;
   let tiles = new Map(), previous = null, previousGame = null, latest = null;
   let pointerEvent = null, lastTime = null, lastFrameMoving = false;
   const pickLayer = new THREE.Group();
   const metrics = { frames: 0, activeFrames: 0, activeMs: 0, renderMs: 0 };
+  let turnLight = null, shadowsDirty = true;
+  const lamp = { seat: -1, head: 0, target: 0, alpha: 0, targetAlpha: 0, move: null, fade: null };
   const reducedMotion = root.matchMedia?.('(prefers-reduced-motion: reduce)');
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -219,14 +223,134 @@
     group.add(panelMesh);
     const panelTop = new THREE.MeshBasicMaterial({
       map: panelTex, transparent: true, toneMapped: false,
-      polygonOffset: true, polygonOffsetFactor: -2
+      // 已抬离牌身；负深度偏移会盖住其上方的灯带，透明贴图也无需写入深度。
+      depthWrite: false
     });
     const cap = new THREE.Mesh(new THREE.PlaneGeometry(PANEL.w, PANEL.w), panelTop);
+    cap.name = 'table-panel-top';
+    cap.renderOrder = 1;
     cap.rotation.x = -Math.PI / 2;
     cap.position.y = PH + 0.003;
     group.add(cap);
+    buildTurnLight(group, PH);
 
     return group;
+  }
+
+  // 从自己这一侧的中点出发，沿圆角方框走向右/上/左侧。
+  function panelTrack(phase) {
+    const a = PANEL.w / 2 - TURN_LIGHT.inset, r = TURN_LIGHT.radius;
+    const edge = a - r, arc = r * Math.PI / 2, quarter = edge * 2 + arc;
+    const wrapped = ((phase % 4) + 4) % 4, side = Math.floor(wrapped);
+    const distance = (wrapped - side) * quarter;
+    let x, z, nx, nz;
+    if (distance < edge) { x = distance; z = a; nx = 0; nz = 1; }
+    else if (distance < edge + arc) {
+      const angle = Math.PI / 2 - (distance - edge) / r;
+      nx = Math.cos(angle); nz = Math.sin(angle);
+      x = edge + nx * r; z = edge + nz * r;
+    } else { x = a; z = edge - (distance - edge - arc); nx = 1; nz = 0; }
+    const angle = side * Math.PI / 2, c = Math.cos(angle), s = Math.sin(angle);
+    return { x: x * c + z * s, z: z * c - x * s, nx: nx * c + nz * s, nz: nz * c - nx * s };
+  }
+
+  function lightRingGeometry(width) {
+    const positions = [], uv = [], indices = [], segments = 128;
+    for (let i = 0; i <= segments; i++) {
+      const phase = i * 4 / segments, p = panelTrack(phase);
+      for (const side of [-1, 1]) {
+        positions.push(p.x + p.nx * width / 2 * side, 0, p.z + p.nz * width / 2 * side);
+        uv.push(phase, side);
+      }
+      if (i < segments) {
+        const n = i * 2;
+        indices.push(n, n + 1, n + 2, n + 1, n + 3, n + 2);
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    return geometry;
+  }
+
+  function buildTurnLight(group, height) {
+    const track = new THREE.Mesh(lightRingGeometry(.085), new THREE.MeshBasicMaterial({ color: 0x060e19 }));
+    track.name = 'table-turn-track';
+    track.position.y = height + .006;
+    group.add(track);
+    // 一整圈共用一个着色器，光带包住拐角；光晕与亮芯只占一次绘制。
+    const material = new THREE.ShaderMaterial({
+      uniforms: { head: { value: 0 }, strength: { value: 0 } },
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+      vertexShader: 'varying vec2 vTrack; void main() { vTrack = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `
+        varying vec2 vTrack;
+        uniform float head;
+        uniform float strength;
+        void main() {
+          float distance = abs(vTrack.x - head);
+          distance = min(distance, 4.0 - distance);
+          float bar = 1.0 - smoothstep(0.16, 0.25, distance);
+          float core = 1.0 - smoothstep(0.13, 0.32, abs(vTrack.y));
+          float halo = exp(-4.0 * abs(vTrack.y));
+          float alpha = bar * (core * 0.85 + halo * 0.32) * strength;
+          if (alpha < 0.002) discard;
+          vec3 color = mix(vec3(1.0, 0.53, 0.08), vec3(1.0, 0.95, 0.65), core);
+          gl_FragColor = vec4(color, alpha);
+        }`
+    });
+    turnLight = new THREE.Mesh(lightRingGeometry(.22), material);
+    turnLight.name = 'table-turn-light';
+    turnLight.renderOrder = 2;
+    turnLight.position.y = height + .010;
+    group.add(turnLight);
+  }
+
+  function advanceTurnLight(now) {
+    if (!turnLight) return false;
+    for (const key of ['move', 'fade']) {
+      const motion = lamp[key];
+      if (!motion) continue;
+      const t = Math.min(1, Math.max(0, (now - motion.start) / motion.duration));
+      lamp[key === 'move' ? 'head' : 'alpha'] = THREE.MathUtils.lerp(motion.from, motion.to, t * t * (3 - 2 * t));
+      if (t === 1) lamp[key] = null;
+    }
+    const breathe = reducedMotion?.matches ? 1 : .82 + .18 * Math.cos(now * Math.PI * 2 / TURN_LIGHT.period);
+    turnLight.material.uniforms.head.value = ((lamp.head % 4) + 4) % 4;
+    turnLight.material.uniforms.strength.value = lamp.alpha * breathe;
+    turnLight.visible = lamp.alpha > 0;
+    return !!lamp.move || !!lamp.fade || (lamp.seat >= 0 && motionAllowed());
+  }
+
+  function syncTurnLight(seat, now, animate) {
+    advanceTurnLight(now);
+    if (seat === lamp.seat) {
+      if (!animate) {
+        lamp.move = null; lamp.fade = null;
+        lamp.head = lamp.target; lamp.alpha = lamp.targetAlpha;
+        advanceTurnLight(now);
+      }
+      return;
+    }
+    const hadSeat = lamp.seat >= 0;
+    lamp.seat = seat;
+    lamp.targetAlpha = seat >= 0 ? 1 : 0;
+    if (seat >= 0) {
+      // 用当前光的位置续接新目标；碰杠跨座和 3→0 都走最近的边框路径。
+      const phase = ((lamp.head % 4) + 4) % 4;
+      let delta = ((seat - phase + 4) % 4);
+      if (delta > 2) delta -= 4;
+      lamp.target = hadSeat ? lamp.head + delta : seat;
+    } else lamp.target = lamp.head;
+    lamp.move = animate && hadSeat && seat >= 0 && Math.abs(lamp.target - lamp.head) > .0001
+      ? { from: lamp.head, to: lamp.target, start: now, duration: TURN_LIGHT.travel } : null;
+    lamp.fade = animate && lamp.alpha !== lamp.targetAlpha
+      ? { from: lamp.alpha, to: lamp.targetAlpha, start: now, duration: TURN_LIGHT.fade } : null;
+    if (!lamp.move) lamp.head = lamp.target;
+    if (!lamp.fade) lamp.alpha = lamp.targetAlpha;
+    advanceTurnLight(now);
   }
 
   /* ---------------- 动态牌层 ---------------- */
@@ -290,6 +414,7 @@
       const p = seatLocal(seat.x, SELF_HAND.z, seat.ry, lx, 0);
       const occurrence = items.slice(0, i).filter((t) => t === id).length;
       const tile = tileSpec(ctx, `hand:0:${id}:${occurrence}`, seat, 'hand', id, true);
+      tile.userData.slot = i;
       tile.scale = scale;
       if (seat.id === 0) leanToCamera(tile, p, 0.004);
       else standUp(tile, seat.ry, p, 0.004);
@@ -307,6 +432,7 @@
       const lx = -span / 2 + i * (T.w + HAND_GAP) + T.w / 2;
       const p = seatLocal(seat.x, seat.z, seat.ry, lx, 0);
       const tile = tileSpec(ctx, `hand:${seat.id}:${i}`, seat, 'hand', null, false);
+      tile.userData.slot = i;
       standUp(tile, seat.ry, p, 0.004);
     }
   }
@@ -395,11 +521,6 @@
     g.fillStyle = 'rgba(139,164,198,.9)';
     g.font = '500 30px "Microsoft YaHei", sans-serif';
     g.fillText('牌墙剩余', cx, cy + 92);
-    // 轮到谁
-    g.fillStyle = '#8fe3dc';
-    const turn = info.turn || '';
-    fitFont(turn, 430, 34, '500');
-    g.fillText(turn, cx, cy + 164);
     panelTex.needsUpdate = true;
   }
 
@@ -417,9 +538,15 @@
   function motionAllowed() { return active && !document.hidden && !reducedMotion?.matches; }
 
   function finishMotions() {
+    deal = null;
+    lamp.move = null; lamp.fade = null;
+    lamp.head = lamp.target; lamp.alpha = lamp.targetAlpha;
+    advanceTurnLight(performance.now());
+    shadowsDirty = true;
     for (const node of tiles.values()) {
       const d = node.userData;
       d.motion = null; d.hover = 0; d.hoverVelocity = 0;
+      node.visible = true;
       node.position.copy(d.targetPosition);
       node.quaternion.copy(d.targetQuaternion);
       node.scale.setScalar(d.targetScale);
@@ -434,10 +561,12 @@
     const dt = lastTime == null ? 0 : Math.max(0, (now - lastTime) / 1000);
     lastTime = now;
     if (pressedTile && (now >= pressedTile.userData.pressedUntil || !pressedTile.userData.playable)) pressedTile = null;
-    let moving = false;
+    let moving = advanceTurnLight(now);
     for (const node of tiles.values()) {
       const d = node.userData, m = d.motion;
       if (m) {
+        shadowsDirty = true;
+        if (m.deal) node.visible = now >= m.start;
         const t = Math.min(1, Math.max(0, (now - m.start) / m.duration));
         const ease = t * t * (3 - 2 * t);
         d.basePosition.lerpVectors(m.from, d.targetPosition, ease);
@@ -447,6 +576,7 @@
         if (t === 1) d.motion = null;
         else moving = true;
       }
+      const oldHover = d.hover;
       const target = d.playable ? (node === pressedTile ? .13 : node === hoverTile ? .10 : 0) : 0;
       if (reducedMotion?.matches) { d.hover = target; d.hoverVelocity = 0; }
       else {
@@ -460,6 +590,7 @@
       }
       node.position.copy(d.basePosition);
       node.position.y += d.hover;
+      if (oldHover !== d.hover) shadowsDirty = true;
       if (d.pick) {
         // 命中区跟随补位，但不跟随悬停上浮，避免边缘反复命中/失去命中。
         d.pick.position.copy(d.basePosition);
@@ -472,10 +603,15 @@
 
   function targetPose(node, spec, now, animate, kind) {
     const d = node.userData, rotation = new THREE.Quaternion().setFromEuler(spec.rotation);
-    const changed = !d.targetPosition || !d.targetPosition.equals(spec.position) ||
+    const changed = kind === 'deal' || !d.targetPosition || !d.targetPosition.equals(spec.position) ||
       1 - Math.abs(d.targetQuaternion.dot(rotation)) > 1e-8 || d.targetScale !== spec.scale;
     if (!changed) return; // 重复快照/轮次文字更新不能重启正在运行的动画。
-    const from = kind === 'discard' || kind === 'meld' ? node.position.clone() : (d.basePosition || node.position).clone();
+    if (d.motion?.deal && deal && spec.zone === 'hand') {
+      // 庄家补首摸和操作提示可能紧接着到达，只更新终点，不打断已经排好的发牌批次。
+      d.targetPosition.copy(spec.position); d.targetQuaternion.copy(rotation); d.targetScale = spec.scale;
+      return;
+    }
+    const from = ['discard', 'meld', 'deal'].includes(kind) ? node.position.clone() : (d.basePosition || node.position).clone();
     if (kind === 'discard' || kind === 'meld') { d.hover = 0; d.hoverVelocity = 0; }
     d.targetPosition = spec.position.clone();
     d.targetQuaternion = rotation;
@@ -483,7 +619,7 @@
     d.basePosition = from;
     if (animate) d.motion = {
       from: from.clone(), rotation: node.quaternion.clone(), scale: node.scale.x, start: now,
-      duration: MOTION[kind], arc: kind === 'discard' ? .65 : kind === 'meld' ? .20 : kind === 'draw' ? .10 : 0
+      duration: MOTION[kind], arc: kind === 'discard' ? .65 : kind === 'deal' ? .24 : kind === 'meld' ? .20 : kind === 'draw' ? .10 : 0
     };
     else {
       d.motion = null;
@@ -491,6 +627,23 @@
       node.position.copy(spec.position);
       node.quaternion.copy(rotation);
       node.scale.setScalar(spec.scale);
+    }
+    if (kind === 'deal' && d.motion) {
+      const slot = spec.userData.slot;
+      const order = Math.floor(slot / 4) * 4 + (spec.seat - deal.dealer + 4) % 4;
+      d.motion.start = deal.start + order * 42 + (slot % 4) * 18;
+      d.motion.deal = true;
+    }
+  }
+
+  function finishDeal(now) {
+    deal = null;
+    for (const node of tiles.values()) {
+      const d = node.userData;
+      if (!d.motion?.deal) continue;
+      node.visible = true;
+      d.motion = { from: d.basePosition.clone(), rotation: node.quaternion.clone(), scale: node.scale.x,
+        start: now, duration: 160, arc: 0 };
     }
   }
 
@@ -531,23 +684,32 @@
         node.scale.setScalar(spec.scale);
         node.userData.hover = 0; node.userData.hoverVelocity = 0;
         tileLayer.add(node);
-        if (animate && (spec.zone === 'hand' || spec.zone === 'river')) {
-          const seat = SEAT[spec.seat];
-          const origin = spec.zone === 'hand'
-            ? seatLocal(spec.position.x, spec.position.z, seat.ry, .20, -.45)
-            : seatLocal(seat.x, seat.z, seat.ry, 0, 0);
-          node.position.set(origin.x, spec.zone === 'hand' ? spec.position.y + .10 : tileHalfH + .1, origin.z);
-          if (spec.zone === 'river') node.rotation.set(0, seat.ry, 0);
-        }
+      }
+      const dealing = deal && spec.zone === 'hand' && (fresh || deal.new);
+      if (dealing) {
+        const seat = SEAT[spec.seat], slot = spec.userData.slot;
+        const origin = seatLocal(0, 0, seat.ry, ((slot % 4) - 1.5) * .18, 1.85);
+        node.position.set(origin.x, .24 + (slot % 4) * .025, origin.z);
+        node.rotation.order = 'YXZ';
+        node.rotation.set(spec.seat === 0 ? -Math.PI / 2 : Math.PI / 2, seat.ry, 0);
+        node.scale.setScalar(spec.scale * .88);
+        node.userData.motion = null;
+      } else if (fresh && animate && (spec.zone === 'hand' || spec.zone === 'river')) {
+        const seat = SEAT[spec.seat];
+        const origin = spec.zone === 'hand'
+          ? seatLocal(spec.position.x, spec.position.z, seat.ry, .20, -.45)
+          : seatLocal(seat.x, seat.z, seat.ry, 0, 0);
+        node.position.set(origin.x, spec.zone === 'hand' ? spec.position.y + .10 : tileHalfH + .1, origin.z);
+        if (spec.zone === 'river') node.rotation.set(0, seat.ry, 0);
       }
       available.delete(node);
       const oldZone = node.userData.zone;
-      const kind = spec.zone === 'river' && oldZone !== 'river' ? 'discard' :
+      const kind = dealing ? 'deal' : spec.zone === 'river' && oldZone !== 'river' ? 'discard' :
         spec.zone === 'meld' && oldZone !== 'meld' ? 'meld' : fresh && spec.zone === 'hand' ? 'draw' : 'move';
       appearance(node, spec.id, spec.faceUp);
       Object.assign(node.userData, { key: spec.key, zone: spec.zone, seat: spec.seat,
         playable: !!spec.userData.playable, drawn: !!spec.userData.drawn });
-      targetPose(node, spec, now, animate, kind);
+      targetPose(node, spec, now, animate || kind === 'deal', kind);
       next.set(spec.key, node);
     }
     for (const node of available) {
@@ -579,7 +741,9 @@
     if (!ready) return;
     const snapshot = {
       roundKey: game.state?.roundId || game.roundNo,
+      dealId: view?.opening || 0, dealer: game.dealer ?? 0,
       phase: game.phase, seq: game.discardSeq || 0,
+      turnSeat: game.phase === 'playing' && Number.isInteger(game.turn) && game.turn >= 0 && game.turn < 4 ? game.turn : -1,
       hands: game.players.map((p) => (p.handCount != null ? p.handCount : p.hand.length)),
       hand0: game.players[0].hand.slice().sort((a, b) => a - b),
       discards: game.players.map((p) => p.discards.slice()),
@@ -598,11 +762,20 @@
     const now = performance.now();
     if (sameRound) advance(now);
     else {
+      deal = null;
       tileLayer.clear(); pickLayer.clear(); tiles.clear();
       setHover(null); pressedTile = null; discardPick = null; lastTime = null;
       if (tipHandler) tipHandler(null, 0, 0);
     }
-    const panelChanged = !previous || snapshot.round !== previous.round || snapshot.wall !== previous.wall || snapshot.turn !== previous.turn;
+    if (deal && (snapshot.dealId !== deal.id || snapshot.seq > 0 || !['dealing', 'playing'].includes(snapshot.phase))) finishDeal(now);
+    if (snapshot.dealId && snapshot.dealId !== lastDealId) {
+      lastDealId = snapshot.dealId;
+      if (motionAllowed() && !snapshot.seq && snapshot.hands.every((count) => count >= 13 && count <= 14) &&
+          snapshot.discards.every((list) => !list.length) && snapshot.melds.every((list) => !list.length)) {
+        deal = { id: snapshot.dealId, start: now, dealer: snapshot.dealer, new: true };
+      }
+    }
+    const panelChanged = !previous || snapshot.round !== previous.round || snapshot.wall !== previous.wall;
     sig = next;
 
     const ctx = { items: [], playable: snapshot.playable };
@@ -614,6 +787,9 @@
       placeMelds(seat, snapshot.melds[i], ctx);
     });
     reconcile(ctx.items, now, animate, snapshot);
+    if (deal) deal.new = false;
+    syncTurnLight(snapshot.turnSeat, now, animate);
+    shadowsDirty = true;
     previous = snapshot; previousGame = game;
     if (panelChanged) drawPanel(snapshot);
     invalidate();
@@ -629,7 +805,8 @@
     pickLayer.updateMatrixWorld(true);
     camera.updateMatrixWorld();
     raycaster.setFromCamera(pointer, camera);
-    const hit = raycaster.intersectObjects(pickLayer.children, false)[0];
+    const targets = pickLayer.children.filter((p) => p.userData.tile.visible && !p.userData.tile.userData.motion?.deal);
+    const hit = raycaster.intersectObjects(targets, false)[0];
     return hit ? hit.object.userData.tile : null;
   }
 
@@ -710,6 +887,7 @@
     renderer.toneMappingExposure = 0.94;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.autoUpdate = false;
 
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(34, 1200 / 740, 0.1, 140);
@@ -768,6 +946,7 @@
       for (const texture of Object.values(assets.face)) renderer.initTexture?.(texture);
       ready = true;
       if (latest) sync(latest.game, latest.view);
+      if (readyHandler) readyHandler();
       invalidate();
     });
     invalidate();
@@ -793,11 +972,14 @@
       moving = moving || !!node;
     }
     if (needsRender || moving || wasMoving) {
+      const layoutChanged = needsRender || shadowsDirty;
       needsRender = false;
       const began = performance.now();
+      renderer.shadowMap.needsUpdate = shadowsDirty;
+      shadowsDirty = false;
       renderer.render(scene, camera);
       metrics.renderMs = performance.now() - began;
-      if (layoutHandler) layoutHandler();
+      if (layoutChanged && layoutHandler) layoutHandler();
       metrics.frames++;
       if (wasMoving && lastDrawTime != null) { metrics.activeFrames++; metrics.activeMs += now - lastDrawTime; }
       lastDrawTime = now;
@@ -822,6 +1004,7 @@
     onDiscard(fn) { discardHandler = fn; },
     onTip(fn) { tipHandler = fn; },
     onLayout(fn) { layoutHandler = fn; },
+    onReady(fn) { readyHandler = fn; },
     get ready() { return ready; },
     get canvas() { return canvas; },
     debug() {

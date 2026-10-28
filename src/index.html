@@ -85,6 +85,14 @@
             <div id="center-panel">
               <div class="cp-glow" aria-hidden="true"></div>
               <div class="cp-plate" aria-hidden="true"></div>
+              <svg class="cp-turn-track" viewBox="-1 -1 2 2" preserveAspectRatio="none" aria-hidden="true">
+                <defs><path id="turn-outline" pathLength="400" d="M 0 .84 H .62 Q .84 .84 .84 .62 V -.62 Q .84 -.84 .62 -.84 H -.62 Q -.84 -.84 -.84 -.62 V .62 Q -.84 .84 -.62 .84 Z" /></defs>
+                <use href="#turn-outline" class="cp-turn-groove" />
+                <g class="cp-turn-beam">
+                  <use href="#turn-outline" class="cp-turn-halo cp-turn-sweep" />
+                  <use href="#turn-outline" class="cp-turn-core cp-turn-sweep" />
+                </g>
+              </svg>
               <span class="cp-wind w-n" aria-hidden="true">东</span>
               <span class="cp-wind w-e" aria-hidden="true">南</span>
               <span class="cp-wind w-s" aria-hidden="true">西</span>
