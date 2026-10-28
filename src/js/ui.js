@@ -364,6 +364,7 @@
     renderHand();
     renderCenter();
     renderActions();
+    fitMobileTable();
     renderActive();
     renderReview();
     syncScene();
@@ -448,8 +449,8 @@
     // 听牌：按手牌样式排在右侧，每张角上标可见剩张
     const strip = drawn == null ? tingStripHtml() : '';
     const bar = $('#ting-bar');
-    if (glOn) {
-      // 3D 牌桌：DOM 手牌是隐藏的，候选牌挂到屏幕层、贴在 3D 手牌右端
+    if (glOn || document.body.classList.contains('mobile-table')) {
+      // 3D 和手机使用独立候选区，避免听牌提示挤占手牌的宽度。
       if (bar) {
         setHtml(bar, strip);
         bar.classList.toggle('hidden', !strip);
@@ -467,6 +468,10 @@
   function placeTingBar() {
     const bar = $('#ting-bar');
     if (!bar || bar.classList.contains('hidden')) return;
+    if (document.body.classList.contains('mobile-table')) {
+      bar.style.left = ''; bar.style.top = '';
+      return;
+    }
     if (!glOn || !window.GZScene3D || !window.GZScene3D.handEnd) return;
     const pt = window.GZScene3D.handEnd();
     const stage = el.stage;
@@ -1286,9 +1291,38 @@
 
   /* ---------------- 缩放 ---------------- */
 
+  function fitMobileTable() {
+    if (!document.body.classList.contains('mobile-table') || !game || !el.stage.clientWidth || !el.stage.clientHeight) return;
+    const hasActions = !!el.actions.innerHTML;
+    document.body.classList.toggle('table-actions-open', hasActions);
+    const waitsVisible = !$('#ting-bar').classList.contains('hidden');
+    const controls = hasActions || waitsVisible;
+    const key = `${el.stage.clientWidth}:${el.stage.clientHeight}:${controls}`;
+    if (el.stage._phoneLayout === key) return;
+    const layout = window.GZViewport.tableLayout(el.stage.clientWidth, el.stage.clientHeight, controls);
+    const values = {
+      'tile-w': layout.tile.w, 'tile-h': layout.tile.h,
+      'hand-bottom': layout.handBottom, 'hand-zone': layout.handZone,
+      'river-w': layout.riverTile.w, 'river-h': layout.riverTile.h,
+      'center-x': layout.center.x, 'center-y': layout.center.y, 'center-w': layout.center.w, 'center-h': layout.center.h,
+      'hud-w': layout.hud.w, 'hud-h': layout.hud.h, 'hud-bottom': layout.hud.bottom,
+      'action-x': layout.actions.x, 'action-w': layout.actions.w, 'action-h': layout.actions.h
+    };
+    layout.rivers.forEach((rect, seat) => {
+      for (const [key, value] of Object.entries(rect)) values[`river-${seat}-${key}`] = value;
+    });
+    for (const [key, value] of Object.entries(values)) el.stage.style.setProperty(`--phone-${key}`, `${value.toFixed(2)}px`);
+    el.stage._phoneLayout = key;
+    // 方向、工具栏或操作区改变高度后，继续展示最新弃牌所在的完整行。
+    for (let seat = 0; seat < 4; seat++) {
+      const river = document.querySelector(`.river[data-seat="${seat}"]`);
+      if (river) river.scrollTop = river.scrollHeight;
+    }
+  }
+
   function fit() {
     const view = window.GZViewport.layout();
-    if (view.mobile) { el.stage.style.transform = ''; return; }
+    if (view.mobile) { el.stage.style.transform = ''; fitMobileTable(); placeTingBar(); return; }
     const box = el.wrap;
     if (!box.clientWidth || !box.clientHeight) return;
     const k = Math.min(

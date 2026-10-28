@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
-const { measure } = require('../src/js/viewport.js');
+const { measure, tableLayout } = require('../src/js/viewport.js');
 const { OnlineGame } = require('../server/online-game.js');
 const { snapshot } = require('../server/serialize.js');
 const R = require('../src/js/rules.js');
@@ -41,6 +41,31 @@ test('手机横屏：方向锁定或全屏被拒，页面旋转仍保持；退�
   ctx.innerWidth = 390; ctx.innerHeight = 844;
   classes.delete('in-game'); ctx.GZViewport.leave();
   assert.equal(classes.has('rotate-game'), false);
+});
+
+test('手机牌桌：不同可用高度下14张手牌完整留白，牌河不覆盖桌心、手牌或操作区，弃牌保留整行', () => {
+  const overlap = (a, b) => a.x < b.x + b.w - .01 && a.x + a.w > b.x + .01 &&
+    a.y < b.y + b.h - .01 && a.y + a.h > b.y + .01;
+  for (const width of [480, 568, 640, 667, 740, 812, 844, 896, 932, 1024, 1260]) {
+    for (const height of [190, 198, 220, 239, 260, 278, 306, 348, 388, 480, 560]) {
+      for (const controls of [false, true]) {
+        const l = tableLayout(width, height, controls);
+        for (const rect of [l.hand, l.center, ...l.rivers, ...(controls ? [l.actions] : [])]) {
+          assert.ok(rect.x >= 0 && rect.y >= 0 && rect.x + rect.w <= width + .01 && rect.y + rect.h <= height + .01,
+            `${width}x${height} controls=${controls}: ${JSON.stringify(rect)} 越界`);
+        }
+        assert.ok(l.tile.w >= 24, '手牌仍有可点击的宽度');
+        assert.ok(height - l.hand.y - l.hand.h >= 9.99, '给牌底和安全区保留至少10像素');
+        for (const river of l.rivers) {
+          assert.equal(overlap(river, l.center), false);
+          assert.equal(overlap(river, l.hand), false);
+          const rows = (river.h + 2) / (l.riverTile.h + 2);
+          assert.ok(Math.abs(rows - Math.round(rows)) < .0001, '滚动牌河不能只露出半张弃牌');
+        }
+        if (controls) assert.equal(overlap(l.rivers[1], l.actions), false);
+      }
+    }
+  }
 });
 
 test('结算同步：同一局重复快照只触发一次；新一局和同局号的新房间正常结算', () => {
@@ -245,6 +270,17 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
   assert.ok(doc.body.classList.contains('rotate-game'));
   receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [] });
   const center = elements.get('#center-panel');
+  const stage = elements.get('#stage');
+  const bottomRiver = elements.get('#river-bottom');
+  bottomRiver.scrollHeight = 300; bottomRiver.scrollTop = 0;
+  stage.clientWidth = 568; stage.clientHeight = 198;
+  ctx.GZUI.fit();
+  assert.equal(stage.style['--phone-hand-bottom'], '10.00px');
+  assert.equal(stage.style['--phone-center-h'], '46.00px', '使用实际舞台高度适配矮屏');
+  assert.ok(parseFloat(stage.style['--phone-tile-w']) < 28);
+  assert.equal(bottomRiver.scrollTop, 300, '可用高度改变后仍展示最新弃牌');
+  stage.clientWidth = 844; stage.clientHeight = 348; ctx.GZUI.fit();
+  assert.equal(stage.style['--phone-center-h'], '64.00px');
   const notices = elements.get('#toast');
   receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [{ type:'msg', text:'联机提示：对家报听' }] });
   assert.equal(notices.nodes.at(-1).textContent, '联机提示：对家报听');
@@ -417,6 +453,11 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
   assert.equal(ctx.__game.botSpeed, 'slow');
   const local = ctx.__game;
   local.players.forEach((p) => { p.hand = [0,1,2,3,4,5,6,7,8,9,10,11,22]; p.melds = []; });
+  local.awaiting = null; local.emitState();
+  assert.doesNotMatch(seats[0].querySelector('.hand-main').innerHTML, /ting-tile/, '听牌候选不挤占手机手牌宽度');
+  assert.match(elements.get('#ting-bar').innerHTML, /ting-tile/);
+  assert.equal(elements.get('#ting-bar').classList.contains('hidden'), false);
+  assert.ok(parseFloat(stage.style['--phone-river-1-h']) < parseFloat(stage.style['--phone-river-3-h']), '候选条保留独立空间');
   local.players[0].hand.push(22);
   local.players[1].hand = [2,5,8,10,13,16,19,21,24,26,0,0,0,0];
   await local.doKong(1, 'angang', 0);
