@@ -594,10 +594,11 @@ test('冲锋鸡：本局第一张打出的幺鸡算双倍', () => {
   assert.equal(g.charges[0].follow, false);
   assert.equal(g.charges[0].taken, false);
 
-  // 玩家 3 的鸡：手里一张 2 分，牌河冲锋鸡 4 分，共 6 分。
+  // 玩家 3 没叫牌：手里的幺鸡不赔，只算牌河那张冲锋鸡 4 分（2 分 × 双倍）。
   g.players[1].hand = WIN14();
   const res = g.settleWin([{ p: 1, winTile: null }], { selfDraw: true });
-  assert.equal(res.chickenCount[3], 6);
+  assert.equal(res.isTing[3], false);
+  assert.equal(res.chickenCount[3], 4);
   assert.deepEqual(res.charges, [{ p: 3, tile: R.YAOJI, follow: false }]);
 });
 
@@ -621,7 +622,7 @@ test('冲锋鸡：幺鸡和八筒各算各的，可以分别冲', () => {
   // 两人牌河的冲锋鸡各自双倍：玩家 3 = 幺鸡 4 分，玩家 0 = 八筒 4 分
   g.players[1].hand = WIN14();
   const res = g.settleWin([{ p: 1, winTile: null }], { selfDraw: true });
-  assert.equal(res.chickenCount[3], 6, '手里剩一张八筒 2 + 牌河幺鸡 2 + 冲锋鸡 2');
+  assert.equal(res.chickenCount[3], 4, '没叫牌：只算牌河幺鸡 2 + 冲锋鸡 2，手里那张八筒不赔');
   assert.equal(res.chickenCount[0], 4, '牌河八筒 2 + 八筒冲锋鸡 2');
 });
 
@@ -679,10 +680,12 @@ test('包鸡：未听者向所有听牌者赔自己的鸡，未胡的听牌者�
   const g = new Game({ dealer: 0 });
   g.phase = 'playing';
   g.wall = [];
-  // 玩家 1 胡牌；玩家 2 叫牌（听牌）；玩家 3 没叫，手里 2 张八筒 = 4 分
+  // 玩家 1 胡牌；玩家 2 叫牌（听牌）；玩家 3 没叫：
+  // 牌河里 2 张八筒 = 4 分，手里那张八筒不算（只有打出去的才赔）
   g.players[1].hand = WIN14();
   g.players[2].hand = WIN14().slice(0, -1);
-  g.players[3].hand = handOf([[W, 4], [W, 6], [W, 8], [TI, 4], [TI, 6], [TI, 8], [P, 8], [P, 8], [P, 4], [P, 6], [W, 2], [TI, 2], [P, 2]]);
+  g.players[3].hand = handOf([[W, 4], [W, 6], [W, 8], [TI, 4], [TI, 6], [TI, 8], [P, 8], [P, 4], [P, 6], [W, 2], [TI, 2], [P, 2], [P, 3]]);
+  g.players[3].discards = [c(P, 8), c(P, 8)];
 
   const res = g.settleWin([{ p: 1, winTile: null }], { selfDraw: true });
   assert.equal(res.isTing[3], false);
@@ -701,14 +704,15 @@ test('翻牌鸡：没叫牌的人不赔，只算自己的常鸡', () => {
   g.wall = [c(W, 5)];                       // 翻五万 → 翻牌鸡是六万
   g.players[1].hand = WIN14();
   g.players[2].hand = WIN14().slice(0, -1);
-  // 玩家 3 没叫牌：两张六万（翻牌鸡 2 分）+ 一张八筒（常鸡 2 分）
+  // 玩家 3 没叫牌：手里两张六万 + 一张八筒都不赔，牌河里一张八筒、一张六万才赔
   g.players[3].hand = handOf([
     [W, 6], [W, 6], [W, 8], [TI, 4], [TI, 6], [TI, 8], [P, 8], [P, 4], [P, 6], [W, 2], [TI, 2], [P, 2], [P, 3]
   ]);
+  g.players[3].discards = [c(P, 8), c(W, 6)];
 
   const res = g.settleWin([{ p: 1, winTile: null }], { selfDraw: true });
   assert.equal(res.isTing[3], false);
-  assert.equal(res.chickenCount[3], 2, '只算八筒 2 分，六万（翻牌鸡）不赔');
+  assert.equal(res.chickenCount[3], 2, '只算牌河的八筒 2 分：手里和牌河的翻牌鸡（六万）都不赔');
   assert.ok(!res.baoji.some((b) => b.p === 3 && b.points > 2));
 
   // 叫牌的人手里的翻牌鸡照算

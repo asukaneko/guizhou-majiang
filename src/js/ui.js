@@ -809,7 +809,7 @@
         : '';
       collectHtml = `${flipText}
         <div class="ji-row" style="margin-top:8px">${chickenChips}</div>
-        <p class="note" style="margin-top:6px">叫牌的人按手牌 + 副露 + 自己牌河的鸡分，向其他三家各收一份；没叫牌的人（包鸡）把自己的常鸡（幺鸡 / 乌骨鸡 / 冲锋鸡）赔给每位听牌者，翻牌鸡不算，包括未胡牌的听牌者。</p>
+        <p class="note" style="margin-top:6px">叫牌的人按手牌 + 副露 + 自己牌河的鸡分，向其他三家各收一份；没叫牌的人（包鸡）只把自己<span class="hl">牌河里</span>的常鸡（幺鸡 / 乌骨鸡 / 冲锋鸡）赔给每位听牌者，手里的、副露里的和翻牌鸡都不赔，包括未胡牌的听牌者。</p>
         ${tingNote}${baojiText}`;
     } else {
       collectHead = '幺筒（财神）';
@@ -1088,12 +1088,12 @@
     <h3>鸡</h3>
     <ul>
       <li>幺鸡（一条）${R.CHICKEN_BASE[R.YAOJI]} 分/张，乌骨鸡（八筒）${R.CHICKEN_BASE[R.WUGU]} 分/张，整局都算</li>
-      <li>翻牌鸡：胡牌后翻牌墙第 1 张，翻到牌的下一张为鸡（翻 5 万 → 6 万；翻 9 条 → 幺鸡），1 分/张；<span class="hl">只算叫牌的人</span>，没叫牌的人手里的翻牌鸡不赔</li>
+      <li>翻牌鸡：胡牌后翻牌墙第 1 张，翻到牌的下一张为鸡（翻 5 万 → 6 万；翻 9 条 → 幺鸡），1 分/张；<span class="hl">只算叫牌的人</span>，没叫牌的人翻牌鸡一律不计</li>
       <li><span class="hl">金鸡</span>：翻牌鸡正好是幺鸡 / 乌骨鸡时，该牌种翻倍（幺鸡 ${R.CHICKEN_BASE[R.YAOJI] * 2} 分、八筒 ${R.CHICKEN_BASE[R.WUGU] * 2} 分）</li>
       <li><span class="hl">冲锋鸡</span>：本局第一张被打出的幺鸡 / 八筒，计双倍；幺鸡和八筒<span class="hl">各算各的</span>，可以分别冲</li>
       <li><span class="hl">跟冲</span>：第一轮（开局前 4 张出牌）内，已经冲过的那种鸡再被打出，也算冲锋鸡，同样双倍</li>
       <li><span class="hl">责任鸡</span>：冲锋鸡被别人碰 / 杠走，只记账且这张不再翻倍。胡牌时拿牌者听牌，原出牌者付 ${R.RESPONSIBILITY_POINT} 分；拿牌者未听，向每位听牌者赔 ${R.RESPONSIBILITY_POINT} 分</li>
-      <li><span class="hl">包鸡</span>：胡牌时没叫牌的人，按自己手牌、副露和牌河的<span class="hl">常鸡</span>分向每位听牌者各赔一份（翻牌鸡不赔）</li>
+      <li><span class="hl">包鸡</span>：胡牌时没叫牌的人，只按自己<span class="hl">牌河里</span>的常鸡分向每位听牌者各赔一份；手里的、副露里的鸡都不赔，翻牌鸡也不赔</li>
       <li>鸡分在胡牌时统一结算；叫牌（听牌）的人按手牌 + 副露 + 自己牌河的张数，向其他三家各收一份</li>
     </ul>
     ${RULES_COMMON}`,

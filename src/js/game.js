@@ -864,9 +864,11 @@
       const { kongDeltas, responsibilityDeltas } = this.settleDeferred(isTing);
       const liveCharges = this.charges.filter((c) => !c.taken);
       const chickenCount = this.players.map((q, i) => {
-        // 翻牌鸡只算叫牌（听牌）的人；没叫牌的人手里的翻牌鸡不赔。
-        let n = R.chickenPoints(q.hand, q.melds, q.discards, chickens,
-          (c) => isTing[i] || c.kind !== '翻牌鸡');
+        // 叫牌（听牌）的人：手牌 + 副露 + 牌河的鸡都算，翻牌鸡也算。
+        // 没叫牌的人：只有打出去的鸡才赔——手里的、副露里的都不算，翻牌鸡也不算。
+        let n = isTing[i]
+          ? R.chickenPoints(q.hand, q.melds, q.discards, chickens)
+          : R.chickenPoints([], [], q.discards, chickens, (c) => c.kind !== '翻牌鸡');
         // 冲锋鸡 / 跟冲：这张自己牌河里的鸡再算一份（合计双倍）
         for (const c of liveCharges) if (c.p === i) n += R.chickenRate(chickens, c.tile);
         return n;
