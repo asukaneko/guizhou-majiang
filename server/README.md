@@ -117,7 +117,8 @@ snap = {
   roomId, roundId,                    // 唯一 roundId 用于结算及本地战绩去重
   phase, mode, roundNo, totalRounds, dealer, turn, wallLeft,
   scores[4], roundDeltas[4],          // 已按视角轮转：scores[0] 永远是你
-  lastDiscard, discardSeq, discardHot, chongCount, firstChicken,
+  lastDiscard, discardSeq, discardHot, chongCount,
+  charges[],                          // 冲锋鸡 / 跟冲记录 {p, tile, follow, taken}，幺鸡和八筒各算各的
   players[4]: {                       // players[0] 就是你
     id, name, isHuman, isBot,
     botPlay,                         // 真人座位是否启用人机代打

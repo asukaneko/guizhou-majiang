@@ -39,7 +39,7 @@
         '幺鸡 / 乌骨鸡 / 翻牌鸡，金鸡翻倍',
         '报听 · 天听 · 天胡地胡',
         '抢杠胡 · 热炮 · 一炮多响',
-        '冲锋鸡 · 责任鸡 · 包鸡',
+        '冲锋鸡（幺鸡 / 八筒各算各的）· 跟冲 · 责任鸡 · 包鸡',
         '黄庄查叫：没叫牌的人赔给叫牌者'
       ],
       wild: null,     // 无财神
@@ -399,7 +399,10 @@
   CHICKEN_BASE[YAOJI] = 2;
   CHICKEN_BASE[WUGU] = 2;
 
-  /** 本局的鸡与分值：幺鸡、乌骨鸡、翻牌鸡（翻牌的下一张，撞上常鸡即为金鸡） */
+  /**
+   * 本局的鸡与分值：幺鸡、乌骨鸡（常鸡，2 分/张）、翻牌鸡（翻牌的下一张，1 分/张；
+   * 撞上常鸡即为金鸡，该牌种翻倍）。翻牌鸡只算叫牌（听牌）的人，没叫牌的人不赔。
+   */
   function chickenSet(flip, mode) {
     const M = resolveMode(mode);
     if (!M.chickens) return [];
@@ -427,13 +430,16 @@
     return hit ? hit.rate : 0;
   }
 
-  /** 统计某人（手牌 + 副露 + 自己牌河）的鸡分 */
-  function chickenPoints(hand, melds, discards, chickens) {
+  /**
+   * 统计某人（手牌 + 副露 + 自己牌河）的鸡分。
+   * filter(chicken) 可选：返回 false 的鸡不计入（用于「翻牌鸡只算叫牌的人」）。
+   */
+  function chickenPoints(hand, melds, discards, chickens, filter) {
     let n = 0;
     if (!chickens || !chickens.length) return 0;
     const hit = (t) => {
       const c = chickens.find((x) => x.tile === t);
-      if (c) n += c.rate;
+      if (c && (!filter || filter(c))) n += c.rate;
     };
     for (const t of hand) hit(t);
     for (const m of melds || []) for (const t of m.tiles) hit(t);

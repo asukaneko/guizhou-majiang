@@ -182,10 +182,22 @@
     return evaluate;
   }
 
+  // 跟冲：第一轮（开局前 4 张出牌）内跟打同一种鸡也算冲锋鸡
+  const CHARGE_FOLLOW_DISCARDS = 4;
+
+  /** 打出这张能多拿的冲锋鸡分：幺鸡 / 乌骨鸡各算各的，第一轮内跟冲也算 */
+  function chargeGain(tile, mode, context) {
+    if (!mode.chickens || (tile !== R.YAOJI && tile !== R.WUGU)) return 0;
+    const charges = context.charges || [];
+    const charged = charges.some((c) => c.tile === tile);
+    if (!charged) return R.CHICKEN_BASE[tile] * 3;                       // 本局首张
+    if ((context.discardSeq || 0) < CHARGE_FOLLOW_DISCARDS) return R.CHICKEN_BASE[tile] * 3; // 跟冲
+    return 0;
+  }
+
   function discardReward(tile, mode, context) {
     if (tile === mode.wild && Number.isInteger(context.chongCount)) return 3 * (R.CHONG_POINTS[context.chongCount] || 0);
-    if (mode.chickens && context.firstChicken === null && (tile === R.YAOJI || tile === R.WUGU)) return R.CHICKEN_BASE[tile] * 3;
-    return 0;
+    return chargeGain(tile, mode, context);
   }
 
   // 按难度限制根候选、有效摸牌与后续弃牌的展开数量。
@@ -279,8 +291,8 @@
       const melds = player.melds.concat({ type: act, tile, tiles: new Array(act === 'gang' ? 4 : 3).fill(tile) });
       const after = act === 'peng' ? analyzeDiscards(hand, melds, M, ctx)[0] : evaluate(hand, melds, base.seen);
       if (!after) continue;
-      const chicken = context.firstChicken;
-      const responsibility = chicken && !chicken.taken && chicken.tile === tile && chicken.p !== context.seat ? R.RESPONSIBILITY_POINT : 0;
+      const chicken = (context.charges || []).find((c) => !c.follow && !c.taken && c.tile === tile && c.p !== context.seat);
+      const responsibility = chicken ? R.RESPONSIBILITY_POINT : 0;
       const score = callValue(after, base, after.shanten === 0 ? (act === 'gang' ? R.KONG_POINT : 0) + responsibility : 0);
       if (score != null && score > value) { best = act; value = score; }
     }

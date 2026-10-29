@@ -10,7 +10,7 @@ const junk = () => [0, 3, 6, 9, 12, 15, 18, 21, 24, 1, 10, 19, 22, 8];
 const player = (hand, melds = []) => ({ hand, melds });
 
 test('冲锋鸡估值：未听牌不预支鸡分，打出后听牌才考虑收分收益', () => {
-  const context = { firstChicken:null, lookahead:false };
+  const context = { charges: [], discardSeq: 0, lookahead:false };
   const scattered = AI.analyzeDiscards(junk(), [], 'classic', context).find((r) => r.tile === R.YAOJI);
   assert.ok(scattered.shanten > 0);
   assert.equal(scattered.reward, 0);
@@ -18,6 +18,18 @@ test('冲锋鸡估值：未听牌不预支鸡分，打出后听牌才考虑收�
   const ready = AI.analyzeDiscards(hand, [], 'classic', context).find((r) => r.tile === R.YAOJI);
   assert.equal(ready.shanten, 0);
   assert.equal(ready.reward, 6);
+});
+
+test('冲锋鸡估值：第一轮内跟冲照样值钱，第一轮过后不再重复计价', () => {
+  const hand = [0, 1, 2, 3, 4, 5, 12, 13, 14, 18, 19, 20, 22, 9];
+  const pick = (context) => AI.analyzeDiscards(hand, [], 'classic', { ...context, lookahead: false })
+    .find((r) => r.tile === R.YAOJI);
+  assert.equal(pick({ charges: [], discardSeq: 0 }).reward, 6, '首张幺鸡：冲锋鸡 2 分 × 3 家');
+  const charged = [{ p: 1, tile: R.YAOJI, follow: false, taken: false }];
+  assert.equal(pick({ charges: charged, discardSeq: 2 }).reward, 6, '第一轮内跟冲双倍');
+  assert.equal(pick({ charges: charged, discardSeq: 9 }).reward, 0, '第一轮过后只是普通鸡');
+  assert.equal(pick({ charges: [{ p: 1, tile: R.WUGU, follow: false, taken: false }], discardSeq: 9 }).reward, 6,
+    '八筒冲过不影响幺鸡自己冲');
 });
 
 test('向听数：普通胡、听牌、七对四归二及副露分别计算', () => {

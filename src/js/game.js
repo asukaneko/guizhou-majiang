@@ -11,6 +11,8 @@
   const SEAT_NAMES = ['你', '下家', '对家', '上家'];
   const KONG_POINT = R.KONG_POINT;
   const BONUS = R.BONUS;
+  // 第一轮 = 开局前 4 张出牌；这之内跟打同一种鸡也算冲锋鸡（跟冲）
+  const CHARGE_FOLLOW_DISCARDS = 4;
 
   const removeTiles = (hand, tile, n) => {
     const out = hand.slice();
@@ -62,7 +64,9 @@
       this.discardSeq = 0;       // 本局已经打出多少张（判断天胡 / 地胡 / 热炮）
       this.discardHot = false;   // 刚打出的这张是不是杠后打出的
       this.lastKongBy = -1;
-      this.firstChicken = null;  // 冲锋鸡 {p, tile, index, taken}
+      // 冲锋鸡 / 跟冲：[{p, tile, index, follow, taken}]
+      // 幺鸡、乌骨鸡各算各的（可以分别冲）；第一轮内跟打同一种鸡也算冲锋鸡（follow）。
+      this.charges = [];
       this.chongCount = 0;       // 冲幺筒：本局已经打出几张幺筒
       this.result = null;
       this.log = [];
@@ -102,7 +106,7 @@
       this.discardSeq = 0;
       this.discardHot = false;
       this.lastKongBy = -1;
-      this.firstChicken = null;
+      this.charges = [];
       this.chongCount = 0;
       this.log = [];
       this.wall = R.shuffle(R.createWall());
@@ -240,17 +244,39 @@
       // 杠后打出的这张被别人胡 → 热炮
       this.discardHot = this.lastKongBy === p;
       if (this.lastKongBy === p) this.lastKongBy = -1;
-      // 冲锋鸡：本局第一张被打出的幺鸡 / 乌骨鸡
-      if (this.mode.chickens && !this.firstChicken && (tile === R.YAOJI || tile === R.WUGU)) {
-        this.firstChicken = { p, tile, index: pl.discards.length - 1, taken: false };
-        this.note(`冲锋鸡：${pl.name} 打出 ${tile === R.WUGU ? '乌骨鸡' : '幺鸡'}（本局首张，胡牌时双倍计分）`);
-      }
+      // 冲锋鸡 / 跟冲
+      if (this.mode.chickens) this.registerCharge(p, tile);
       // 冲幺筒：财神被扔出来要赔分，赔率逐张递减
       if (this.mode.wild !== null && this.mode.wild !== undefined && tile === this.mode.wild) {
         this.chongYitong(p);
       }
       this.emit('discard', { p, tile });
       this.emitState();
+    }
+
+    /**
+     * 记录冲锋鸡 / 跟冲。
+     *  · 幺鸡、乌骨鸡各算各的：任一种本局第一张被打出的都算冲锋鸡（可以分别冲）；
+     *  · 跟冲：第一轮（开局前 4 张出牌）内，已经出现过冲锋鸡的那种牌再被打出，同样算冲锋鸡；
+     *  · 被碰 / 杠拿走的那张不再翻倍（见 settleResponsibility）。
+     */
+    registerCharge(p, tile) {
+      if (tile !== R.YAOJI && tile !== R.WUGU) return null;
+      const first = this.charges.find((c) => !c.follow && c.tile === tile);
+      const follow = !!first && this.discardSeq <= CHARGE_FOLLOW_DISCARDS;
+      if (first && !follow) return null;
+      const entry = { p, tile, index: this.players[p].discards.length - 1, follow, taken: false };
+      this.charges.push(entry);
+      const name = tile === R.WUGU ? '乌骨鸡' : '幺鸡';
+      this.note(follow
+        ? `跟冲鸡：${this.players[p].name} 跟打 ${name}，第一轮内也算冲锋鸡（胡牌时双倍计分）`
+        : `冲锋鸡：${this.players[p].name} 打出 ${name}（本局首张，胡牌时双倍计分）`);
+      return entry;
+    }
+
+    /** 某张牌的冲锋鸡记录（不含跟冲），没有就是 null */
+    chargeOf(tile) {
+      return this.charges.find((c) => !c.follow && c.tile === tile) || null;
     }
 
     /** 打出一张幺筒：本局第 1 张向其他三家各收 5 分，第 2 张各收 3 分，之后不收 */
@@ -341,7 +367,8 @@
           : { type: m.type, tile: m.tile, tiles: m.tiles.slice() })
       }));
       return { seat: p, players, difficulty: this.aiDifficulty, seen: R.seenCountsOf(this.players[p].hand, players),
-        wallLeft: this.wall.length, chongCount: this.chongCount, firstChicken: this.firstChicken };
+        wallLeft: this.wall.length, chongCount: this.chongCount, discardSeq: this.discardSeq,
+        charges: this.charges.map((c) => ({ p: c.p, tile: c.tile, follow: c.follow, taken: c.taken })) };
     }
 
     /** 程序代打：先亮出要打哪张，再落子。sticky = 报听后不可撤销 */
@@ -493,9 +520,11 @@
      * 冲锋鸡被碰 / 杠走，记录拿牌者的责任鸡，胡牌时按听牌状态结算。
      */
     settleResponsibility(taker, tile, from) {
-      const fc = this.firstChicken;
-      if (!fc || fc.taken || fc.p !== from || fc.tile !== tile) return false;
+      const fc = this.charges.find((c) => !c.taken && c.p === from && c.tile === tile);
+      if (!fc) return false;
       fc.taken = true;
+      // 跟冲被拿走只是这张不再翻倍，不记责任鸡（责任鸡只认本局首张冲锋鸡）
+      if (fc.follow) return false;
       this.penaltyLog.push({ kind: '责任鸡', p: from, to: taker, tile, points: R.RESPONSIBILITY_POINT,
         deltas: [0, 0, 0, 0], settled: false, voided: false });
       this.note(`责任鸡：${this.players[taker].name} 拿走 ${this.players[from].name} 的冲锋鸡，记 ${R.RESPONSIBILITY_POINT} 分，胡牌时结算`);
@@ -797,10 +826,13 @@
         winnerSeats.indexOf(i) >= 0 || R.tenpaiTiles(opts.robKong && opts.from === i
           ? removeTiles(q.hand, results[0].winTile, 1) : q.hand, q.melds, this.mode).length > 0);
       const { kongDeltas, responsibilityDeltas } = this.settleDeferred(isTing);
-      const charge = this.firstChicken && !this.firstChicken.taken ? this.firstChicken : null;
+      const liveCharges = this.charges.filter((c) => !c.taken);
       const chickenCount = this.players.map((q, i) => {
-        let n = R.chickenPoints(q.hand, q.melds, q.discards, chickens);
-        if (charge && charge.p === i) n += R.chickenRate(chickens, charge.tile); // 冲锋鸡翻倍
+        // 翻牌鸡只算叫牌（听牌）的人；没叫牌的人手里的翻牌鸡不赔。
+        let n = R.chickenPoints(q.hand, q.melds, q.discards, chickens,
+          (c) => isTing[i] || c.kind !== '翻牌鸡');
+        // 冲锋鸡 / 跟冲：这张自己牌河里的鸡再算一份（合计双倍）
+        for (const c of liveCharges) if (c.p === i) n += R.chickenRate(chickens, c.tile);
         return n;
       });
 
@@ -845,7 +877,7 @@
         chickenCount,
         chickenDeltas,
         chongLog: this.penaltyLog.filter((k) => k.kind === '冲幺筒'),
-        charge: charge ? { p: charge.p, tile: charge.tile } : null,
+        charges: liveCharges.map((c) => ({ p: c.p, tile: c.tile, follow: c.follow })),
         baoji,
         isTing,
         kongLog: this.kongLog.slice(),

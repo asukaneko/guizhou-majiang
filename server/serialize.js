@@ -93,7 +93,9 @@ function publicResult(game, forSeat) {
   out.chongLog = (res.chongLog || []).map((k) => ({
     kind: k.kind, p: rotateSeat(k.p, forSeat), points: k.points, seq: k.seq, label: k.label
   }));
-  out.charge = res.charge ? { p: rotateSeat(res.charge.p, forSeat), tile: res.charge.tile } : null;
+  out.charges = (res.charges || []).map((c) => ({
+    p: rotateSeat(c.p, forSeat), tile: c.tile, follow: !!c.follow
+  }));
   out.baoji = (res.baoji || []).map((b) => ({
     p: rotateSeat(b.p, forSeat), to: rotateSeat(b.to, forSeat), points: b.points
   }));
@@ -175,9 +177,9 @@ function snapshot(game, forSeat) {
     discardSeq: game.discardSeq,
     discardHot: !!game.discardHot,
     chongCount: game.chongCount || 0,
-    firstChicken: game.firstChicken
-      ? { p: rotateSeat(game.firstChicken.p, forSeat), tile: game.firstChicken.tile, taken: !!game.firstChicken.taken }
-      : null,
+    charges: (game.charges || []).map((c) => ({
+      p: rotateSeat(c.p, forSeat), tile: c.tile, follow: !!c.follow, taken: !!c.taken
+    })),
     players,
     awaiting,
     autoPlay: !!game.players[forSeat].botPlay,

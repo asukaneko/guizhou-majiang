@@ -80,7 +80,7 @@ test('责任鸡：拿牌者听牌时原出牌者付2分，未听时拿牌者向�
     g.players[0].hand = (ready ? ready10() : junk10()).concat(23,9,9);
     g.players[3].hand.push(9); g.discard(3, 9);
     g.doPeng(0, 9, 3); g.discard(0, 23);
-    assert.equal(g.firstChicken.taken, true);
+    assert.equal(g.charges[0].taken, true);
     assert.equal(g.penaltyLog[0].points, 2);
     assert.equal(g.penaltyLog[0].settled, false);
     assert.deepEqual(g.scores, zeros());
@@ -102,7 +102,7 @@ test('明杠冲锋鸡：杠4和责任鸡2分别记账，听牌后分别结算', 
   const res = finish(g);
   assert.deepEqual(res.kongDeltas, [4,0,0,-4]);
   assert.deepEqual(res.responsibilityDeltas, [2,0,0,-2]);
-  assert.equal(res.charge, null, '被拿走的冲锋鸡不再翻倍');
+  assert.deepEqual(res.charges, [], '被拿走的冲锋鸡不再翻倍');
 });
 
 test('黄庄：杠和责任鸡全部作废，普通鸡也不算，只按查叫收支', async () => {

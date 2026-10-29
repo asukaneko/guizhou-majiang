@@ -61,7 +61,7 @@
       this.discardSeq = snap.discardSeq;
       this.discardHot = snap.discardHot;
       this.chongCount = snap.chongCount;
-      this.firstChicken = snap.firstChicken;
+      this.charges = snap.charges || [];
       this.totalRounds = snap.totalRounds || this.totalRounds;
       const newResult = snap.result;
       const resultKey = snap.roundId || `${snap.roomId || ''}:${snap.roundNo}`;
