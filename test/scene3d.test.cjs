@@ -465,3 +465,49 @@ test('开场发牌：后台/离开牌桌立即结束，减少动态效果时直�
   quiet.sync(game(), { opening: 1 }); quiet.drain();
   assert.ok(quiet.nodes.every((n) => n.visible && !n.userData.motion));
 });
+
+test('3D 木框：连续圆角 U 形条带、分层扶手、木纹与黄铜护角', async () => {
+  const h = await table();
+  const scene = h.renderer.scene;
+  const TABLE = 9.0, HALF = TABLE / 2, BAND = 0.98;
+  // 木框是一条 extrusion 出来的连续条带（不再是三块方盒拼接），远侧两角圆润
+  const rail = scene.getObjectByName('table-rail');
+  assert.ok(rail, '缺少木框主体');
+  assert.equal(rail.geometry.type, 'ExtrudeGeometry');
+  rail.geometry.computeBoundingBox();
+  const box = rail.geometry.boundingBox;
+  // 形状空间：x 横向、y 指向远端（世界 -Z）、z 是挤出高度（世界 +Y）
+  assert.ok(box.max.x > HALF + BAND - 0.05, '外沿没到设计宽度');
+  assert.ok(box.max.y > HALF + BAND - 0.05, '远端没盖住外沿');
+  assert.ok(box.min.y < -6.0, '木框应向镜头铺开');
+  assert.ok(box.max.z - box.min.z > 0.6, '木框厚度不足');
+  const railMesh = rail;
+  railMesh.updateMatrixWorld(true);
+  const topY = new THREE.Box3().setFromObject(railMesh).max.y;
+  assert.ok(topY > 0.06, '木框顶面应高于绒面，形成牌挡');
+  assert.ok(rail.material.map, '木框应贴木纹贴图');
+
+  // 扶手自内向外：护条 / 暗槽 / 包边 / 皮面 / 包边 / 车线
+  const order = ['table-rail-guard', 'table-rail-groove', 'table-rail-pipeIn',
+    'table-rail-cap', 'table-rail-pipeOut', 'table-rail-seamA', 'table-rail-seamB'];
+  order.forEach((name) => assert.ok(scene.getObjectByName(name), `缺少 ${name}`));
+  // 形状空间的 |x| 就是各层到桌心的距离，按自内向外递增
+  const extent = (name) => {
+    const g = scene.getObjectByName(name).geometry;
+    g.computeBoundingBox();
+    return g.boundingBox.max.x;
+  };
+  const asc = ['table-rail-guard', 'table-rail-groove', 'table-rail-pipeIn',
+    'table-rail-seamA', 'table-rail-seamB', 'table-rail-cap', 'table-rail-pipeOut'];
+  for (let i = 1; i < asc.length; i++) {
+    assert.ok(extent(asc[i - 1]) < extent(asc[i]), `${asc[i - 1]} 应比 ${asc[i]} 更靠绒面`);
+  }
+  assert.ok(extent('table-rail-pipeOut') < extent('table-rail'), '扶手不应超出木框外沿');
+
+  // 远侧两角有黄铜护角，各自带铆钉
+  for (const side of ['left', 'right']) {
+    const corner = scene.getObjectByName(`table-corner-${side}`);
+    assert.ok(corner, `缺少 ${side} 护角`);
+    assert.ok(corner.children.length >= 5, '护角应有底板、面板与铆钉');
+  }
+});

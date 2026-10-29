@@ -23,6 +23,19 @@
   } };
   const MOTION = { move: 210, draw: 260, discard: 360, meld: 280, deal: 300, hover: 32 };
   const TURN_LIGHT = { inset: .11, radius: .22, period: 2400, travel: 420, fade: 180 };
+  // 木框：内沿贴绒面（TABLE/2），近侧敞开并铺到镜头前，三面连续、远侧两角圆润
+  const FRAME = {
+    half: TABLE / 2, band: 0.98, front: 6.95,
+    ri: 0.30, rf: 0.18,
+    base: -0.62, height: 0.72
+  };
+  FRAME.ro = FRAME.ri + FRAME.band;                  // 内外圆角共心
+  // 扶手分层：金护条 / 暗槽 / 皮质扶手 / 车线 / 外侧木边（偏移量相对绒面边界）
+  const RAIL_LAYERS = {
+    guard: [0, .16], groove: [.16, .19], pipeIn: [.19, .235],
+    pad: [.235, .79], pipeOut: [.79, .835],
+    seamA: [.39, .412], seamB: [.615, .637]
+  };
 
   let renderer = null, scene = null, camera = null, canvas = null;
   let seatGroups = [], tileLayer = null, panelMesh = null, panelTex = null, panelCanvas = null;
@@ -167,34 +180,217 @@
     return tex;
   }
 
+  /* 木纹：底色 + 长年轮 + 细孔，贴在木框上，避免大面积纯色塑料感 */
+  function woodTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 512;
+    const g = c.getContext('2d');
+    g.fillStyle = '#2a1a11';
+    g.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 300; i++) {
+      const y = Math.random() * 512, w = .5 + Math.random() * 2.6;
+      const dark = 8 + Math.random() * 54;
+      g.strokeStyle = `rgba(${dark | 0}, ${(dark * .5) | 0}, ${(dark * .28) | 0}, ${.1 + Math.random() * .3})`;
+      g.lineWidth = w;
+      g.beginPath();
+      g.moveTo(y, -12);
+      g.bezierCurveTo(y + (Math.random() - .5) * 16, 160, y + (Math.random() - .5) * 16, 348, y + (Math.random() - .5) * 9, 524);
+      g.stroke();
+    }
+    for (let i = 0; i < 150; i++) {
+      const y = Math.random() * 512;
+      g.strokeStyle = `rgba(${150 + Math.random() * 60 | 0}, ${108 + Math.random() * 40 | 0}, ${70 + Math.random() * 26 | 0}, ${.05 + Math.random() * .12})`;
+      g.lineWidth = .6 + Math.random() * 1.8;
+      g.beginPath();
+      g.moveTo(y, -12);
+      g.bezierCurveTo(y + (Math.random() - .5) * 20, 170, y + (Math.random() - .5) * 20, 340, y + (Math.random() - .5) * 12, 524);
+      g.stroke();
+    }
+    for (let i = 0; i < 900; i++) {
+      const x = Math.random() * 512, y = Math.random() * 512;
+      g.fillStyle = `rgba(${110 + Math.random() * 70 | 0}, ${72 + Math.random() * 40 | 0}, ${40 + Math.random() * 24 | 0}, ${.04 + Math.random() * .08})`;
+      g.fillRect(x, y, 1 + Math.random() * 2.4, 1);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.encoding = THREE.sRGBEncoding;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(5.5, 1.1);
+    tex.anisotropy = 8;
+    return tex;
+  }
+
+  /* 皮面颗粒：细密噪点，避免扶手是一块死板的纯色 */
+  function leatherTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 512;
+    const g = c.getContext('2d');
+    g.fillStyle = '#6b4e3a';
+    g.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 1400; i++) {
+      const x = Math.random() * 512, y = Math.random() * 512, r = 3 + Math.random() * 9;
+      const light = Math.random() > .45;
+      g.fillStyle = light
+        ? `rgba(${158 + Math.random() * 54 | 0}, ${122 + Math.random() * 40 | 0}, ${92 + Math.random() * 30 | 0}, ${.03 + Math.random() * .05})`
+        : `rgba(${28 + Math.random() * 24 | 0}, ${18 + Math.random() * 16 | 0}, ${12 + Math.random() * 12 | 0}, ${.04 + Math.random() * .06})`;
+      g.beginPath();
+      g.arc(x, y, r, 0, Math.PI * 2);
+      g.fill();
+    }
+    for (let i = 0; i < 2600; i++) {
+      const x = Math.random() * 512, y = Math.random() * 512;
+      g.fillStyle = `rgba(${Math.random() > .5 ? 210 : 30}, ${Math.random() > .5 ? 176 : 22}, ${Math.random() > .5 ? 140 : 16}, .05)`;
+      g.fillRect(x, y, 2, 2);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.encoding = THREE.sRGBEncoding;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(1.15, 1.15);
+    return tex;
+  }
+
+  /* U 形条带：圆角外形走一圈、近侧留口。inner 是内沿到桌心的距离，band 是宽度。 */
+  function bandShape(inner, band, front, opts) {
+    const o = opts || {};
+    const ro = o.ro ?? FRAME.ro, ri = o.ri ?? FRAME.ri, rf = o.rf ?? FRAME.rf;
+    const W = inner + band, iw = W - band, y0 = -front;
+    const s = new THREE.Shape();
+    s.moveTo(-W, y0 + rf);
+    s.lineTo(-W, W - ro);                            // 外沿远左
+    s.quadraticCurveTo(-W, W, -W + ro, W);
+    s.lineTo(W - ro, W);
+    s.quadraticCurveTo(W, W, W, W - ro);             // 外沿远右
+    s.lineTo(W, y0 + rf);
+    s.quadraticCurveTo(W, y0, W - rf, y0);           // 右臂近端
+    s.lineTo(iw + rf, y0);
+    s.quadraticCurveTo(iw, y0, iw, y0 + rf);
+    s.lineTo(iw, iw - ri);                           // 内沿远右（绒面圆角）
+    s.quadraticCurveTo(iw, iw, iw - ri, iw);
+    s.lineTo(-iw + ri, iw);
+    s.quadraticCurveTo(-iw, iw, -iw, iw - ri);       // 内沿远左
+    s.lineTo(-iw, y0 + rf);
+    s.quadraticCurveTo(-iw, y0, -iw - rf, y0);       // 左臂近端
+    s.lineTo(-W + rf, y0);
+    s.quadraticCurveTo(-W, y0, -W, y0 + rf);
+    return s;
+  }
+
+  function bandMesh(name, spec) {
+    const geometry = new THREE.ExtrudeGeometry(bandShape(spec.inner, spec.band, spec.front, spec), {
+      depth: spec.height, bevelEnabled: true, bevelSegments: 2,
+      bevelSize: spec.bevel, bevelThickness: spec.bevel, curveSegments: 6, steps: 1
+    });
+    const mesh = new THREE.Mesh(geometry, spec.material);
+    mesh.name = name;
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = spec.base;
+    mesh.castShadow = !!spec.castShadow;
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  /* 十六进制色按 sRGB 给定，渲染前要转到线性空间，否则深色会发灰发亮 */
+  function srgb(hex) { return new THREE.Color(hex).convertSRGBToLinear(); }
+
   function buildTable() {
     const group = new THREE.Group();
 
-    // 三侧木框；近侧敞开，让桌布铺到镜头下方。
-    const rimMat = new THREE.MeshStandardMaterial({ color: COMMON.colors.wood, roughness: .72, metalness: .06 });
-    const rimWidth = .425, rimCenter = (TABLE + rimWidth) / 2;
-    [['far', TABLE + rimWidth * 2, rimWidth, 0, -rimCenter],
-      ['left', rimWidth, TABLE, -rimCenter, 0],
-      ['right', rimWidth, TABLE, rimCenter, 0]].forEach(([side, w, d, x, z]) => {
-      const rim = new THREE.Mesh(new THREE.BoxGeometry(w, .62, d), rimMat);
-      rim.name = `table-rim-${side}`;
-      rim.position.set(x, -.34, z);
-      rim.receiveShadow = true;
-      group.add(rim);
+    const woodMat = new THREE.MeshStandardMaterial({ map: woodTexture(), color: 0xffffff, roughness: .56, metalness: .05 });
+    const leatherMat = new THREE.MeshStandardMaterial({ map: leatherTexture(), color: srgb(0xa08670), roughness: .68, metalness: .06 });
+    const brassMat = new THREE.MeshStandardMaterial({ color: srgb(0xc79b52), roughness: .34, metalness: .22 });
+    const brassDeep = new THREE.MeshStandardMaterial({ color: srgb(0x7d5a24), roughness: .46, metalness: .2 });
+    const seamMat = new THREE.MeshStandardMaterial({ color: srgb(0x3a2a1e), roughness: .8, metalness: .1 });
+    const grooveMat = new THREE.MeshStandardMaterial({ color: srgb(0x140e0a), roughness: .95, metalness: .02 });
+    const pipeMat = new THREE.MeshStandardMaterial({ color: srgb(0x3f2c20), roughness: .7, metalness: .08 });
+    const railTop = FRAME.base + FRAME.height;       // 木框顶面高度
+    const outer = FRAME.half + FRAME.band;           // 木框外沿
+    // 与绒面等距的两条边界之间就是一条共心的圆角条带
+    const radii = (a, b) => ({ ri: FRAME.ri + a, ro: FRAME.ri + b });
+    const layer = (name, key, spec) => {
+      const [a, b] = RAIL_LAYERS[key];
+      return bandMesh(name, Object.assign({
+        inner: FRAME.half + a, band: b - a, front: FRAME.front - .1,
+        rf: .06, base: railTop, height: .05, bevel: .01, material: leatherMat
+      }, radii(a, b), spec));
+    };
+
+    // 木框主体：一条连续的圆角 U 形条带，远侧两角圆润、近端敞开并铺到镜头前
+    group.add(bandMesh('table-rail', {
+      inner: FRAME.half, band: FRAME.band, front: FRAME.front,
+      base: FRAME.base, height: FRAME.height, bevel: .03, material: woodMat, castShadow: true
+    }));
+
+    // 外立面的装饰线脚，给侧板一点车线感
+    group.add(bandMesh('table-molding', {
+      inner: outer + .01, band: .022, front: FRAME.front - .2,
+      rf: .05, base: -.34, height: .036, bevel: .007, material: brassDeep,
+      ...radii(FRAME.band + .01, FRAME.band + .032)
+    }));
+
+    // 绒面与扶手之间的黄铜护条
+    group.add(layer('table-rail-guard', 'guard', {
+      front: FRAME.front - .04, base: railTop - .02, height: .09, bevel: .013, material: brassMat, castShadow: true
+    }));
+
+    // 护条与皮面之间的暗槽，压出一道分界阴影
+    group.add(layer('table-rail-groove', 'groove', {
+      base: railTop - .006, height: .034, bevel: .005, material: grooveMat
+    }));
+
+    // 皮质扶手，外侧留一条木边
+    group.add(layer('table-rail-cap', 'pad', {
+      front: FRAME.front - .12, base: railTop + .002, height: .062, bevel: .009, material: leatherMat, castShadow: true
+    }));
+
+    // 扶手内外两条包边珠子
+    ['pipeIn', 'pipeOut'].forEach((key) => {
+      group.add(layer(`table-rail-${key}`, key, {
+        front: FRAME.front - .115, base: railTop + .001, height: .092, bevel: .016,
+        material: pipeMat, castShadow: true
+      }));
     });
 
-    // 铜色压条
-    const brass = new THREE.MeshStandardMaterial({ color: COMMON.colors.brass, roughness: .42, metalness: .6 });
-    const inlayW = TABLE + 0.30, inlayD = TABLE + 0.30, t = 0.06;
-    [[0, -(inlayD - t) / 2], [(inlayW - t) / 2, 0], [-(inlayW - t) / 2, 0]].forEach(([x, z]) => {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(x ? t : inlayW, 0.05, x ? inlayD : t), brass);
-      bar.position.set(x, -0.012, z);
-      group.add(bar);
+    // 扶手上一道双车线
+    ['seamA', 'seamB'].forEach((key) => {
+      group.add(layer(`table-rail-${key}`, key, {
+        front: FRAME.front - .15, base: railTop + .058, height: .012, bevel: .004, material: seamMat
+      }));
+    });
+
+    // 远侧两角的黄铜护角 + 铆钉
+    const plateGeo = new THREE.ExtrudeGeometry(roundedShape(1.0, 1.0, .24), {
+      depth: .028, bevelEnabled: true, bevelSegments: 1, bevelSize: .014, bevelThickness: .014, curveSegments: 5, steps: 1
+    });
+    plateGeo.center();
+    plateGeo.rotateX(-Math.PI / 2);
+    const capGeo = new THREE.ExtrudeGeometry(roundedShape(.72, .72, .17), {
+      depth: .022, bevelEnabled: true, bevelSegments: 1, bevelSize: .012, bevelThickness: .012, curveSegments: 5, steps: 1
+    });
+    capGeo.center();
+    capGeo.rotateX(-Math.PI / 2);
+    const screwGeo = new THREE.CylinderGeometry(.028, .028, .016, 10);
+    const corner = FRAME.half + FRAME.band / 2 + .01;
+    [-1, 1].forEach((sx) => {
+      const bracket = new THREE.Group();
+      bracket.name = `table-corner-${sx < 0 ? 'left' : 'right'}`;
+      const base = new THREE.Mesh(plateGeo, brassDeep);
+      base.rotation.y = Math.PI / 4;
+      base.position.set(sx * corner, railTop + .044, -corner);
+      bracket.add(base);
+      const plate = new THREE.Mesh(capGeo, brassMat);
+      plate.rotation.y = Math.PI / 4;
+      plate.position.set(sx * corner, railTop + .082, -corner);
+      bracket.add(plate);
+      [[-.2, .2], [.2, .2], [-.2, -.2], [.2, -.2]].forEach(([dx, dz]) => {
+        const screw = new THREE.Mesh(screwGeo, brassDeep);
+        screw.position.set(sx * corner + dx, railTop + .102, -corner + dz);
+        bracket.add(screw);
+      });
+      group.add(bracket);
     });
 
     // 绒面
     const feltMat = new THREE.MeshStandardMaterial({ map: feltTexture(), color: 0xffffff, roughness: .96, metalness: 0 });
-    const frontExtension = 3;
+    const frontExtension = FRAME.front - TABLE / 2;
     const felt = new THREE.Mesh(new THREE.BoxGeometry(TABLE, .16, TABLE + frontExtension), feltMat);
     felt.name = 'table-felt';
     felt.position.set(0, -.08, frontExtension / 2);
@@ -1007,6 +1203,7 @@
     onReady(fn) { readyHandler = fn; },
     get ready() { return ready; },
     get canvas() { return canvas; },
+    get scene() { return scene; },
     debug() {
       const proj = (x, y, z) => {
         const v = new THREE.Vector3(x, y, z).project(camera);
