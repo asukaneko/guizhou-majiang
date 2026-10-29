@@ -653,6 +653,47 @@ test('翻牌鸡：没叫牌的人不赔，只算自己的常鸡', () => {
   assert.equal(res2.chickenCount[2], 4);
 });
 
+test('素摸：自摸且一张鸡都没有 +10，有鸡或点炮都没有', () => {
+  // 干净的平胡：一万~三万 / 七万~九万 / 二条~四条 / 一筒~三筒 / 五筒对（没有幺鸡、八筒、六万）
+  const CLEAN = handOf([
+    [W, 1], [W, 2], [W, 3], [W, 7], [W, 8], [W, 9],
+    [TI, 2], [TI, 3], [TI, 4], [P, 1], [P, 2], [P, 3], [P, 5], [P, 5]
+  ]);
+  const g = new Game({ dealer: 0 });
+  g.phase = 'playing';
+  g.players[0].hand = CLEAN;
+  const res = g.settleWin([{ p: 0, winTile: null }], { selfDraw: true });
+  assert.ok(res.extra.includes(`素摸 +${R.BONUS.sumo}`), '自摸素胡有素摸加分');
+  assert.equal(res.points, 4 + 1 + R.BONUS.sumo, '平胡 4 + 自摸 1 + 素摸 10');
+  assert.equal(res.winDeltas[0], res.points * 3);
+
+  // 手里有常鸡 → 不是素摸
+  const h = new Game({ dealer: 0 });
+  h.phase = 'playing';
+  h.players[0].hand = WIN14();      // 含一张幺鸡
+  const res2 = h.settleWin([{ p: 0, winTile: null }], { selfDraw: true });
+  assert.ok(!res2.extra.some((x) => x.includes('素摸')));
+
+  // 翻牌鸡也会破素摸：翻五万 → 六万是翻牌鸡
+  const f = new Game({ dealer: 0 });
+  f.phase = 'playing';
+  f.wall = [c(W, 5)];
+  f.players[0].hand = handOf([
+    [W, 1], [W, 2], [W, 3], [W, 6], [W, 7], [W, 8],
+    [TI, 2], [TI, 3], [TI, 4], [P, 1], [P, 2], [P, 3], [P, 5], [P, 5]
+  ]);
+  const res3 = f.settleWin([{ p: 0, winTile: null }], { selfDraw: true });
+  assert.ok(!res3.extra.some((x) => x.includes('素摸')), '手里有翻牌鸡不算素摸');
+
+  // 点炮不算素摸
+  const d = new Game({ dealer: 0 });
+  d.phase = 'playing';
+  d.players[0].hand = CLEAN.slice(0, -1);
+  const res4 = d.settleWin([{ p: 0, winTile: CLEAN[CLEAN.length - 1] }], { selfDraw: false, from: 3 });
+  assert.ok(!res4.extra.some((x) => x.includes('素摸')));
+  assert.equal(res4.points, 4);
+});
+
 test('整局模拟（含新规则）：分数仍为零和', { timeout: 120000 }, async () => {
   const AI = require('../src/js/ai.js');
   const g = new Game({ speed: 90, dealer: 0 });

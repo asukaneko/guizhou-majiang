@@ -1071,6 +1071,7 @@
       <li>报听 <span class="hl">+${R.BONUS.baoting}</span>、天听 <span class="hl">+${R.BONUS.tianting}</span>：本人首次出牌前声明；庄家配完 13 张即听牌算天听，其余（含非庄家起手听牌）都算报听，天听替代报听加分</li>
       <li>抢杠胡 <span class="hl">+${R.BONUS.qianggang}</span>，补杠者向每位胡家付一份</li>
       <li>热炮 <span class="hl">+${R.BONUS.repao}</span>：杠后打出的那张牌被别人胡</li>
+      <li>素摸 <span class="hl">+${R.BONUS.sumo}</span>：自摸且手牌、副露、自己牌河一张鸡都没有（幺鸡、八筒、翻牌鸡都算鸡）</li>
     </ul>
 
     <h3>鸡</h3>

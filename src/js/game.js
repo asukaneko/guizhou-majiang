@@ -770,6 +770,10 @@
       if (!Array.isArray(winners)) winners = [{ p: winners, winTile: opts.winTile }];
       this.phase = 'ended';
 
+      // 鸡要先算出来：素摸要看他手里有没有鸡，翻牌鸡也依赖牌墙第 1 张。
+      const flip = this.wall.length ? this.wall[0] : null;
+      const chickens = R.chickenSet(flip, this.mode);
+
       const results = winners.map((w) => {
         const p = w.p;
         const pl = this.players[p];
@@ -781,6 +785,10 @@
         let points = info ? info.points : R.HU_BASE;
         if (info && info.hardBonus) { points += info.hardBonus; extra.push(`硬胡 +${info.hardBonus}`); }
         if (opts.selfDraw) { points += 1; extra.push('自摸 +1'); }
+        // 素摸：自摸且手牌 / 副露 / 自己牌河一张鸡都没有（幺鸡、八筒、翻牌鸡都算鸡）
+        const sumo = !!opts.selfDraw && !!this.mode.chickens
+          && R.chickenPoints(fullHand, pl.melds, pl.discards, chickens) === 0;
+        if (sumo) { points += BONUS.sumo; extra.push(`素摸 +${BONUS.sumo}`); }
         if (opts.gangFlower) { points += 1; extra.push('杠上花 +1'); }
         if (opts.repao) { points += BONUS.repao; extra.push(`热炮 +${BONUS.repao}`); }
         if (opts.tianhu) { points += BONUS.tianhu; extra.push(`天胡 +${BONUS.tianhu}`); }
@@ -819,8 +827,6 @@
       this.applyDeltas(winDeltas);
 
       // 鸡（冲幺筒模式没有鸡）
-      const flip = this.wall.length ? this.wall[0] : null;
-      const chickens = R.chickenSet(flip, this.mode);
       const winnerSeats = results.map((r) => r.p);
       const isTing = this.players.map((q, i) =>
         winnerSeats.indexOf(i) >= 0 || R.tenpaiTiles(opts.robKong && opts.from === i
