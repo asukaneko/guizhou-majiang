@@ -1624,7 +1624,7 @@
       aiDifficulty = AI.difficultyOf(localStorage.getItem('gz-ai-difficulty'));
     } catch (e) { /* ignore */ }
 
-    GZOnline.init({ onError: toast, onEnterGame: enterOnlineGame });
+    GZOnline.init({ onError: toast, onNotice: toast, onEnterGame: enterOnlineGame });
     window.GZChat.init();
     GZLobby.init({ onEnter: enterMode, onRules: showRules, onRender: fit, onOnline: showOnline,
       getPracticeSettings: () => ({ aiDifficulty, botSpeed: SPEEDS[speedIdx].id }), onPracticeSettings: practiceSettings });
@@ -1636,7 +1636,7 @@
     window.GZNet.on('msg', (m) => {
       // 在线人数：welcome 首推 + stats 增量广播，喂给大厅联机卡片
       if (m && (m.t === 'welcome' || m.t === 'stats') && typeof m.online === 'number') {
-        root.GZLobby?.setServerStats({ online: m.online, rooms: m.rooms });
+        window.GZLobby?.setServerStats({ online: m.online, rooms: m.rooms });
       }
     });
     window.GZNet.on('status', (st) => {
@@ -1651,7 +1651,9 @@
 
     blockedShown = false;
     bind();
-    showLobby();
+    // 邀请链接（?room=4321）直接打开联机页，连上服务器后自动加入该房。
+    if (GZOnline.inviteCode) showOnline();
+    else showLobby();
   }
 
   function saveScore() {

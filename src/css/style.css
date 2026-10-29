@@ -1732,6 +1732,10 @@ body.is-remote #btn-difficulty, body.is-remote #btn-reset-scores { display: none
 .room-seat { display: flex; flex-direction: column; padding: 12px; border-radius: 9px; border-color: #3a5543; background: #15291e; text-align: left; }
 .room-seat.is-you { border-color: #bba16a; background: #1b3022; }
 .room-seat.empty { background: transparent; border-color: #455c4c; }
+.room-seat.is-invite { cursor: pointer; transition: border-color .18s ease, background-color .18s ease, transform .18s ease; }
+.room-seat.is-invite:hover { border-color: #c3a968; background: rgba(231, 200, 120, .055); transform: translateY(-1px); }
+.room-seat.is-invite:active { transform: translateY(0); }
+.room-seat.is-invite:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .room-seat.is-offline { border-style: dashed; }
 .room-seat-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 12px; color: #a8bfaf; }
 .room-player-state { color: #c3cdbb; white-space: nowrap; }
@@ -1762,6 +1766,8 @@ body.is-remote #btn-difficulty, body.is-remote #btn-reset-scores { display: none
 .room-seat-foot b.positive { color: #b2e4be; }
 .room-seat-foot b.negative { color: #efb29f; }
 .room-seat-foot .ol-mini { min-height: 36px; padding: 5px 0 5px 8px; font-size: 12px; }
+.room-invite-hint { color: #e0c47f; font-weight: 600; white-space: nowrap; }
+.room-seat.is-invite:hover .room-invite-hint { color: #ffe4a3; }
 .room-settings { margin-top: 22px; padding-top: 18px; border-top: 1px solid #304939; }
 .room-settings .ol-config { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding: 0; background: none; border-radius: 0; }
 .room-settings .ol-field { gap: 7px; color: #c1d2c5; }

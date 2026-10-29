@@ -4,18 +4,101 @@
   const R = root.GZRules, AI = root.GZAI, P = root.GZProfile, Net = root.GZNet;
   const $ = (s) => document.querySelector(s);
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  let node, room = null, started = false, onError = () => {}, onEnterGame = () => {};
+  let node, room = null, started = false, onError = () => {}, onEnterGame = () => {}, onNotice = () => {};
+  let inviteCode = '', autoJoinCode = '';
   const webMode = () => ['http:', 'https:'].includes(location.protocol);
   function defaultAddr() {
     if (webMode()) return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
     return localStorage.getItem('gz-server') || 'ws://127.0.0.1:8788';
   }
-  function init(options) {
+  /** 邀请链接形如 /?room=4321；只认 4 位数字房号，其余参数原样忽略。 */
+  function readInviteCode() {
+    try {
+      const source = `${location.search || ''}&${location.hash || ''}`;
+      const m = source.match(/[?&#]room=(\d{4})(?:[&#]|$)/);
+      return m ? m[1] : '';
+    } catch { return ''; }
+  }
+  function inviteUrl(code) {
+    if (!webMode() || !location.host) return '';
+    const pathname = location.pathname && location.pathname !== '/' ? location.pathname : '/';
+    return `${location.protocol}//${location.host}${pathname}?room=${encodeURIComponent(code)}`;
+  }
+  function inviteMessage(code) {
+    const link = inviteUrl(code);
+    return link
+      ? `【贵州麻将】邀请码 ${code}，点击链接直接进房：${link}`
+      : `【贵州麻将】邀请码 ${code}，打开联机对战后输入房号即可加入。`;
+  }
+  /** 旧浏览器 / 非安全上下文没有 Clipboard API 时的兜底。 */
+  function fallbackCopy(text) {
+    try {
+      const doc = root.document;
+      const input = doc.createElement('textarea');
+      input.value = text;
+      input.setAttribute('readonly', '');
+      if (input.style) Object.assign(input.style, { position: 'fixed', top: '-1000px', left: '-1000px', opacity: '0' });
+      (doc.body || doc.documentElement).appendChild(input);
+      input.focus?.();
+      input.select?.();
+      input.setSelectionRange?.(0, input.value.length);
+      const ok = typeof doc.execCommand === 'function' && doc.execCommand('copy');
+      input.remove?.();
+      return !!ok;
+    } catch { return false; }
+  }
+  function copyInvite(code = room?.id) {
+    const value = String(code || room?.id || '').trim();
+    if (!/^\d{4}$/.test(value)) return false;
+    const text = inviteMessage(value);
+    const finish = (ok) => {
+      if (ok) onNotice(inviteUrl(value)
+        ? `邀请码 ${value} 已复制，发给朋友点链接即可进房`
+        : `邀请码 ${value} 已复制，发给朋友输入房号即可加入`);
+      else onNotice(`复制失败，请手动告诉朋友房号 ${value}`);
+    };
+    try {
+      const clipboard = root.navigator?.clipboard;
+      if (clipboard && typeof clipboard.writeText === 'function') {
+        clipboard.writeText(text).then(() => finish(true), () => finish(fallbackCopy(text)));
+        return true;
+      }
+    } catch { /* 落到 execCommand 兜底 */ }
+    finish(fallbackCopy(text));
+    return true;
+  }
+  /** 自动进房成功后把地址栏里的 room 参数去掉，退出房间后刷新不会再次自动加入。 */
+  function clearInviteParam() {
+    if (!inviteCode) return;
+    try {
+      const loc = root.location;
+      if (!loc?.href || typeof root.URL !== 'function' || !root.history?.replaceState) return;
+      const url = new root.URL(loc.href);
+      if (url.searchParams.get('room') !== inviteCode) return;
+      url.searchParams.delete('room');
+      root.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    } catch { /* 地址栏不可写时忽略 */ }
+  }
+  function joinInvite() {
+    if (!autoJoinCode || room || Net.status() !== 'open') return false;
+    const code = autoJoinCode;
+    if (!Net.send({ t: 'join', room: code })) return false;
+    autoJoinCode = '';
+    return true;
+  }
+  function init(options = {}) {
     node = $('#online');
-    onError = options.onError; onEnterGame = options.onEnterGame;
+    onError = options.onError || onError;
+    onEnterGame = options.onEnterGame || onEnterGame;
+    onNotice = options.onNotice || onError;
+    inviteCode = readInviteCode();
+    autoJoinCode = inviteCode;
     Net.on('msg', handle);
     Net.on('status', (st) => {
-      if (st === 'open') Net.send({ t: 'hello', name: P.get().name });
+      if (st === 'open') {
+        Net.send({ t: 'hello', name: P.get().name });
+        joinInvite();
+      }
       if (st === 'replaced') { leave(true); onError('会话已在另一个页面恢复'); }
       if (!started) render();
     });
@@ -23,6 +106,7 @@
   }
   function leave(silent = false) {
     if (!silent && !Net.send({ t: 'leave' })) { onError('正在重连，恢复连接后可退出房间'); return; }
+    autoJoinCode = '';
     room = null; started = false; render();
     root.GZUI?.showLobby();
   }
@@ -31,6 +115,7 @@
       const sameRoom = room && room.id === msg.room.id;
       const wasStarted = started;
       room = msg.room;
+      if (inviteCode && room.id === inviteCode) clearInviteParam();
       if (!sameRoom) started = false;
       if (room.running || (room.roundNo > 0 && (msg.resumed || sameRoom) && (!sameRoom || wasStarted))) enterTable();
       else { show(); root.GZUI?.showOnlineRoom(); }
@@ -54,6 +139,7 @@
     started = false;
     node.classList.remove('hidden');
     if (webMode() && Net.status() === 'closed') Net.connect(defaultAddr());
+    joinInvite();
     render();
   }
   function hide() { node?.classList.add('hidden'); }
@@ -98,8 +184,8 @@
         <label class="ol-field"><span>人机速度</span><select id="ol-botspeed">${speedOptions('normal')}</select></label>
         <button class="btn-primary" data-act="create" ${disabled}>创建房间</button>
       </section><section class="ol-block"><h3>加入朋友的房间</h3>
-        <label class="ol-field"><span>4 位房号</span><input id="ol-code" maxlength="4" inputmode="numeric" pattern="[0-9]{4}" autocomplete="off" placeholder="输入房号" /></label>
-        <p class="ol-sub">向房主获取房号，即可同桌。</p>
+        <label class="ol-field"><span>4 位房号</span><input id="ol-code" maxlength="4" inputmode="numeric" pattern="[0-9]{4}" autocomplete="off" placeholder="输入房号" value="${esc(inviteCode)}" /></label>
+        <p class="ol-sub">向房主获取房号或邀请链接，即可同桌。</p>
         <button class="btn-primary" data-act="join" ${disabled}>加入房间</button>
       </section></div>
       <div class="ol-foot"><button class="btn-ghost" data-act="back">游戏大厅</button><span class="ol-tip">昵称：${esc(P.get().name)}</span></div>
@@ -115,14 +201,16 @@
     const rows = seats.map((s, i) => {
       const occupied = !!s.uid;
       const state = !occupied ? '空位' : s.offline ? '等待重连' : room.running ? '对局中' : s.bot ? '自动就绪' : s.host ? '房主开局' : room.roundNo ? (s.ready ? '已准备' : '未准备') : '已入座';
-      const role = !occupied ? '邀请朋友或添加人机' : s.offline ? '座位保留中' : s.host ? '房主' : s.bot ? `${AI.DIFFICULTIES[AI.difficultyOf(room.config.aiDifficulty)].label}人机` : s.you ? '本机玩家' : '联机玩家';
+      const role = !occupied ? '点击复制邀请码' : s.offline ? '座位保留中' : s.host ? '房主' : s.bot ? `${AI.DIFFICULTIES[AI.difficultyOf(room.config.aiDifficulty)].label}人机` : s.you ? '本机玩家' : '联机玩家';
       const score = Number.isFinite(room.standings?.[s.seat]) ? room.standings[s.seat] : 0;
       const avatar = !occupied ? '＋' : s.bot ? '机' : Array.from(s.name || '玩家')[0];
-      return `<article class="ol-seat room-seat${occupied ? '' : ' empty'}${s.you ? ' is-you' : ''}${s.offline ? ' is-offline' : ''}">
+      // 空位整张卡都是邀请入口；房主和非房主都能点，权限只影响增删机器人。
+      const inviteAttrs = occupied ? '' : ` data-act="invite" data-code="${esc(room.id)}" role="button" tabindex="0" aria-label="空位，点击复制邀请码 ${esc(room.id)}" title="点击复制邀请码 ${esc(room.id)}"`;
+      return `<article class="ol-seat room-seat${occupied ? '' : ' empty is-invite'}${s.you ? ' is-you' : ''}${s.offline ? ' is-offline' : ''}"${inviteAttrs}>
         <div class="room-seat-head"><span>${['你', '下家', '对家', '上家'][i]}</span><span class="room-player-state${occupied && !s.offline && (s.ready || s.bot || s.host) ? ' ready' : ''}">${state}</span></div>
         <div class="room-player"><div class="room-avatar${s.bot ? ' bot' : ''}" aria-hidden="true">${esc(avatar)}</div>
           <div class="room-player-info"><div class="room-name-line"><div class="ol-seat-name" title="${esc(s.name || '等待加入')}">${occupied ? esc(s.name) : '等待加入'}</div>${s.you && occupied && !s.bot ? '<button class="room-rename" type="button" data-act="rename">改名</button>' : ''}</div><span class="room-player-role">${role}</span></div></div>
-        <div class="room-seat-foot">${occupied ? `<span>累计分 <b class="${score > 0 ? 'positive' : score < 0 ? 'negative' : ''}">${score > 0 ? '+' : ''}${score}</b></span>` : '<span>等待入座</span>'}
+        <div class="room-seat-foot">${occupied ? `<span>累计分 <b class="${score > 0 ? 'positive' : score < 0 ? 'negative' : ''}">${score > 0 ? '+' : ''}${score}</b></span>` : '<span>等待入座</span><span class="room-invite-hint">复制邀请码</span>'}
         ${s.bot && canEdit ? `<button class="ol-mini" data-act="removebot" data-uid="${esc(s.uid)}">移除人机</button>` : ''}</div></article>`;
     }).join('');
     const canPrepare = !room.running && room.roundNo > 0 && !room.host;
@@ -171,6 +259,7 @@
           if (!/^\d{4}$/.test(code)) { onError('请输入 4 位数字房号'); return; }
           Net.send({ t: 'join', room: code }); break;
         }
+        case 'invite': copyInvite(btn.dataset.code); break;
         case 'addbot': Net.send({ t: 'addbot' }); break;
         case 'removebot': Net.send({ t: 'removebot', uid: btn.dataset.uid }); break;
         case 'ready': toggleReady(); break;
@@ -182,14 +271,21 @@
           else if (room.host) Net.send({ t: (room.finished ?? (room.roundNo >= room.totalRounds)) ? 'newtable' : room.roundNo ? 'next' : 'start' });
           break;
         case 'leave': leave(); break;
-        case 'back': hide(); root.GZUI?.showLobby(); break;
+        case 'back': autoJoinCode = ''; hide(); root.GZUI?.showLobby(); break;
       }
     });
     node.addEventListener('change', (e) => {
       const key = { 'ol-mode2': 'mode', 'ol-rounds2': 'totalRounds', 'ol-difficulty2': 'aiDifficulty', 'ol-botspeed2': 'botSpeed' }[e.target.id];
       if (key) Net.send({ t: 'config', config: { [key]: key === 'totalRounds' ? +e.target.value : e.target.value } });
     });
-    node.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'ol-code') node.querySelector('[data-act="join"]').click(); });
+    node.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.id === 'ol-code') { node.querySelector('[data-act="join"]').click(); return; }
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const seat = e.target.closest?.('[data-act="invite"]');
+      if (!seat) return;
+      e.preventDefault();
+      copyInvite(seat.dataset.code);
+    });
   }
-  root.GZOnline = { init, show, hide, readyInfo, toggleReady, rename, get room() { return room; }, get started() { return started; }, resetStarted() { started = false; } };
+  root.GZOnline = { init, show, hide, readyInfo, toggleReady, rename, copyInvite, get room() { return room; }, get started() { return started; }, get inviteCode() { return inviteCode; }, resetStarted() { started = false; } };
 })(typeof window !== 'undefined' ? window : globalThis);
