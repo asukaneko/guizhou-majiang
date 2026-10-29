@@ -12,6 +12,8 @@
 
 * { box-sizing: border-box; }
 
+html { color-scheme: light; }
+
 html, body {
   margin: 0;
   height: 100%;
@@ -1929,8 +1931,13 @@ body.mobile-table.in-game .review-melds { gap: 5px; margin-top: 5px; }
 body.mobile-table.in-game .review-melds .tile { width: 12px; height: 16px; }
 body.mobile-table.in-game .review-hand .wild-tag { font-size: 6px; line-height: 9px; padding: 0 1px; }
 body.mobile-table.in-game .call { top: 38% !important; bottom: auto !important; left: 50% !important; right: auto !important; transform: translateX(-50%) !important; font-size: 32px; }
-body.mobile-table.in-game #toast { top: clamp(62px, 21%, 100px); width: min(560px, calc(100% - 28px)); gap: 6px; }
-body.mobile-table.in-game .toast-item { min-height: 36px; padding: 8px 15px; font-size: 13px; border-radius: 10px; }
+/* 手机：提示条不压牌桌，挪到下家牌河右边的空白列 */
+body.mobile-table.in-game #toast {
+  left: auto; right: 8px; top: calc(var(--tb-h) + var(--phone-toast-y, 52px));
+  width: var(--phone-toast-w, min(42%, 220px)); max-height: var(--phone-toast-h, 160px);
+  transform: none; align-items: flex-end; gap: 6px; overflow: hidden;
+}
+body.mobile-table.in-game .toast-item { min-height: 30px; padding: 6px 12px; font-size: 12.5px; line-height: 1.45; border-radius: 9px; width: auto; max-width: 100%; }
 body.mobile-table.in-game .toast-item.announce { font-size: 14px; }
 /* ================= 夜蓝 · 琥珀牌桌主题 ================= */
 :root {

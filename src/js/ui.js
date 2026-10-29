@@ -1309,7 +1309,8 @@
       'river-w': layout.riverTile.w, 'river-h': layout.riverTile.h,
       'center-x': layout.center.x, 'center-y': layout.center.y, 'center-w': layout.center.w, 'center-h': layout.center.h,
       'hud-w': layout.hud.w, 'hud-h': layout.hud.h, 'hud-bottom': layout.hud.bottom,
-      'action-x': layout.actions.x, 'action-w': layout.actions.w, 'action-h': layout.actions.h
+      'action-x': layout.actions.x, 'action-w': layout.actions.w, 'action-h': layout.actions.h,
+      'toast-y': layout.toast.y, 'toast-w': layout.toast.w, 'toast-h': layout.toast.h
     };
     layout.rivers.forEach((rect, seat) => {
       for (const [key, value] of Object.entries(rect)) values[`river-${seat}-${key}`] = value;

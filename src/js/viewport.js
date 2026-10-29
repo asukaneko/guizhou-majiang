@@ -31,17 +31,36 @@
     const actionH = Math.min(84, Math.max(36, playBottom - top - riverTileH - gap));
     const actions = { x: actionX, y: playBottom - actionH, w: width - actionX - 8, h: actionH };
     const hudW = Math.min(126, width * .2), hudH = compact ? 30 : 34;
+
+    /* 三家对手的牌河不再是同一条横带（那样会连成一长排）：
+       对家留在顶部正中，上家 / 下家整体下移一条带，左右夹着桌心，彼此留出空隙。 */
+    const rowGap = Math.max(10, gap + 6);
+    const sideLimit = Math.min(hasActions ? actions.y - gap : playBottom, playBottom) - gap;
+    const sideTop = top + riverH + rowGap;
+    // 至少要能放下一整行弃牌才下移，否则（极矮屏）退回顶部同一条带
+    const sideY = sideLimit - sideTop >= riverTileH + riverGap ? sideTop : top;
+    const sideH = wholeRows(Math.max(riverTileH, sideLimit - sideY));
+    const sideGap = Math.max(14, gap + 6);
+    // 下家牌河右边的空白列：手机提示条（toast）摆在这里，不再压在牌桌上方
+    const toastX = center.x + center.w + sideGap + sideWidth + sideGap;
+    const toastY = top + hudH + gap;
+    const toastW = Math.max(96, width - 8 - toastX);
+    const toast = {
+      x: Math.min(toastX, width - 8 - toastW), y: toastY, w: toastW,
+      h: Math.max(0, sideLimit - toastY)
+    };
+
     return {
       tile: { w: tileW, h: tileH }, riverTile: { w: riverW, h: riverTileH }, handBottom, handZone, center,
       hand: { x: (width - (tileW * 14 + 2 * 13 + 8)) / 2, y: height - handBottom - tileH, w: tileW * 14 + 2 * 13 + 8, h: tileH },
       hud: { w: hudW, h: hudH, bottom: handZone + 8 }, actions,
       rivers: [
         { x: (width - northWidth) / 2, y: playBottom - riverH, w: northWidth, h: riverH },
-        { x: center.x + center.w + 14, y: top, w: sideWidth,
-          h: wholeRows((hasActions ? actions.y - gap : playBottom) - top) },
+        { x: center.x + center.w + sideGap, y: sideY, w: sideWidth, h: sideH },
         { x: (width - northWidth) / 2, y: top, w: northWidth, h: riverH },
-        { x: center.x - sideWidth - 14, y: top, w: sideWidth, h: wholeRows(playBottom - top) }
-      ]
+        { x: center.x - sideWidth - sideGap, y: sideY, w: sideWidth, h: sideH }
+      ],
+      toast
     };
   }
   if (!root) return { measure, tableLayout };

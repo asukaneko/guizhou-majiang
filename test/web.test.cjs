@@ -63,6 +63,19 @@ test('手机牌桌：不同可用高度下14张手牌完整留白，牌河不覆
           assert.ok(Math.abs(rows - Math.round(rows)) < .0001, '滚动牌河不能只露出半张弃牌');
         }
         if (controls) assert.equal(overlap(l.rivers[1], l.actions), false);
+        // 三家对手的牌河不再挤在同一条横带里
+        assert.equal(overlap(l.rivers[1], l.rivers[2]), false);
+        assert.equal(overlap(l.rivers[3], l.rivers[2]), false);
+        assert.equal(overlap(l.rivers[1], l.rivers[3]), false);
+        // 提示条落在下家牌河右边的空白列：不压桌心、手牌、牌河和操作区
+        assert.ok(l.toast.x >= 0 && l.toast.x + l.toast.w <= width + .01, '提示条越界');
+        assert.ok(l.toast.y + l.toast.h <= height + .01, '提示条越界');
+        if (l.toast.h > .5) {                       // 极矮屏没有空白列时高度为 0（不显示提示条）
+          assert.equal(overlap(l.toast, l.center), false);
+          assert.equal(overlap(l.toast, l.hand), false);
+          for (const river of l.rivers) assert.equal(overlap(l.toast, river), false);
+          if (controls) assert.equal(overlap(l.toast, l.actions), false);
+        }
       }
     }
   }
@@ -457,7 +470,12 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
   assert.doesNotMatch(seats[0].querySelector('.hand-main').innerHTML, /ting-tile/, '听牌候选不挤占手机手牌宽度');
   assert.match(elements.get('#ting-bar').innerHTML, /ting-tile/);
   assert.equal(elements.get('#ting-bar').classList.contains('hidden'), false);
-  assert.ok(parseFloat(stage.style['--phone-river-1-h']) < parseFloat(stage.style['--phone-river-3-h']), '候选条保留独立空间');
+  const riverY = (n) => parseFloat(stage.style[`--phone-river-${n}-y`]);
+  const riverH = (n) => parseFloat(stage.style[`--phone-river-${n}-h`]);
+  assert.ok(riverY(1) > riverY(2) + riverH(2) && riverY(3) > riverY(2) + riverH(2),
+    '下家 / 上家牌河与对家牌河上下错开，不再连成一排');
+  assert.ok(riverY(1) + riverH(1) <= stage.clientHeight - parseFloat(stage.style['--phone-hand-zone']),
+    '候选条 / 操作区保留独立空间');
   local.players[0].hand.push(22);
   local.players[1].hand = [2,5,8,10,13,16,19,21,24,26,0,0,0,0];
   await local.doKong(1, 'angang', 0);
