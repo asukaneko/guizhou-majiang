@@ -300,7 +300,8 @@
   }
 
   function decideSelfGang(actions, player, mode, context = {}) {
-    if (actions.hu || player?.tingDeclared || context.wallLeft === 0) return null;
+    // 报听后能杠的只剩「不影响听牌」的那些（game.selfActions 已过滤），交给同一套估值
+    if (actions.hu || context.wallLeft === 0) return null;
     if (!(actions.angang || []).length && !(actions.bugang || []).length) return null;
     if (!player) return null;
     const M = R.resolveMode(mode), evaluate = evaluator(M, context);

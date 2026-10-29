@@ -37,8 +37,10 @@ class OnlineGame extends Game {
 
   askDiscard(p, self) {
     const pl = this.players[p];
-    if (!this.isBotControlled(p) && !pl.tingDeclared) return this.waitRemoteDiscard(p, self);
-    // 报听锁牌、代打和机器人使用共享的自动操作逻辑。
+    const canKong = (self.angang || []).length > 0 || (self.bugang || []).length > 0;
+    // 报听后能杠时也要真人自己拍板；其余情况（锁牌自动摸打 / 代打 / 机器人）走共享逻辑。
+    const manual = !this.isBotControlled(p) && (!pl.tingDeclared || (canKong && !(self && self.hu)));
+    if (manual) return this.waitRemoteDiscard(p, self);
     return super.askDiscard(p, self);
   }
 
@@ -97,8 +99,10 @@ class OnlineGame extends Game {
       const c = R.counts(pl.hand);
       const acts = [];
       const info = R.winInfo(pl.hand.concat(tile), pl.melds, this.mode);
-      if (info && R.canChiPao(info)) acts.push('hu');
-      if (info && !R.canChiPao(info) && pl.isHuman) this.emit('blocked', { info, tile });
+      // 报听的人打出的牌没有吃炮门槛，三家都能胡
+      const free = !!this.players[from].tingDeclared;
+      if (info && (free || R.canChiPao(info))) acts.push('hu');
+      if (info && !free && !R.canChiPao(info) && pl.isHuman) this.emit('blocked', { info, tile });
       // 报听的人不能再碰 / 杠；幺筒是财神，谁也不能碰 / 杠
       if (!pl.tingDeclared && !R.isWildTile(tile, this.mode)) {
         if (c[tile] >= 3) acts.push('gang');
@@ -115,8 +119,6 @@ class OnlineGame extends Game {
       if (this.isBotControlled(cl.p)) {
         const a = AI.decideClaim(cl.acts, pl, tile, this.mode, this.aiContext(cl.p));
         if (a) picks.push({ p: cl.p, type: a, k: cl.k });
-      } else if (pl.tingDeclared && cl.acts.includes('hu')) {
-        picks.push({ p: cl.p, type: 'hu', k: cl.k });   // 报听的人见炮就胡
       } else {
         asks.push(this.askClaim(tile, from, cl).then((pick) => {
           if (pick) picks.push({ p: cl.p, type: pick, k: cl.k });
@@ -160,8 +162,8 @@ class OnlineGame extends Game {
     const asks = [];
     for (const c of claims) {
       const pl = this.players[c.p];
-      if (pl.tingDeclared || this.isBotControlled(c.p)) {
-        // 报听的人见杠就抢；电脑能抢就抢
+      if (this.isBotControlled(c.p)) {
+        // 电脑能抢就抢
         robbers.push({ p: c.p, winTile: tile });
       } else {
         asks.push(this.askClaim(tile, kongger, { acts: ['hu'], info: c.info, rob: true, p: c.p })
@@ -207,7 +209,9 @@ class OnlineGame extends Game {
     if (prompt.kind === 'discard') {
       const self = prompt.self || {};
       if (action.type === 'discard') {
-        if (pl.tingDeclared) return { ok: false, err: '报听锁牌中，摸什么打什么' };
+        if (pl.tingDeclared && pl.justDrawn != null && action.tile !== pl.justDrawn) {
+          return { ok: false, err: '报听锁牌中，只能打刚摸到的那张' };
+        }
         if (!Number.isInteger(action.tile) || !pl.hand.includes(action.tile)) {
           return { ok: false, err: '手里没有这张牌' };
         }
@@ -221,7 +225,6 @@ class OnlineGame extends Game {
       }
       if (action.type === 'gang') {
         if (!['angang', 'bugang'].includes(action.gangType)) return { ok: false, err: '未知杠类型' };
-        if (pl.tingDeclared) return { ok: false, err: '报听后不能杠' };
         if (action.gangType === 'angang' && !(self.angang || []).includes(action.tile)) {
           return { ok: false, err: '不能暗杠这张' };
         }

@@ -86,6 +86,7 @@ function publicResult(game, forSeat) {
   out.robKong = !!res.robKong;
   out.winTile = res.winTile;
   out.winDeltas = rotateArray(res.winDeltas, forSeat);
+  out.tingDeltas = rotateArray(res.tingDeltas || [0, 0, 0, 0], forSeat);
   out.flip = res.flip !== undefined ? res.flip : null;
   out.chickens = (res.chickens || []).map((c) => ({ tile: c.tile, rate: c.rate, kind: c.kind }));
   out.chickenCount = rotateArray(res.chickenCount, forSeat);

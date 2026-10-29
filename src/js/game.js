@@ -303,6 +303,16 @@
 
     /* ---------------- 可选动作 ---------------- */
 
+    /** 报听后杠这张还听不听牌：暗杠扣 4 张、补杠扣 1 张后仍要有听口 */
+    kongKeepsTing(p, type, tile) {
+      const pl = this.players[p];
+      const hand = removeTiles(pl.hand, tile, type === 'angang' ? 4 : 1);
+      const melds = type === 'angang'
+        ? pl.melds.concat({ type: 'angang', tile, tiles: [tile, tile, tile, tile] })
+        : pl.melds;
+      return R.tenpaiTiles(hand, melds, this.mode).length > 0;
+    }
+
     selfActions(p) {
       const pl = this.players[p];
       const ready = pl.hand.length === 14 - pl.melds.length * 3;
@@ -310,23 +320,30 @@
       const c = R.counts(pl.hand);
       const angang = [];
       const bugang = [];
-      // 报听后手牌锁定，不能再碰 / 杠
-      if (!pl.tingDeclared) {
-        // 幺筒是财神，不能杠
-        for (let t = 0; t < 27; t++) if (c[t] === 4 && !R.isWildTile(t, this.mode)) angang.push(t);
-        for (const m of pl.melds) if (m.type === 'peng' && c[m.tile] >= 1) bugang.push(m.tile);
+      // 报听后仍可杠，但只限「杠完还保持听牌」的那些；幺筒是财神，谁也不能杠
+      for (let t = 0; t < 27; t++) {
+        if (c[t] !== 4 || R.isWildTile(t, this.mode)) continue;
+        if (pl.tingDeclared && !this.kongKeepsTing(p, 'angang', t)) continue;
+        angang.push(t);
+      }
+      for (const m of pl.melds) {
+        if (m.type !== 'peng' || c[m.tile] < 1) continue;
+        if (pl.tingDeclared && !this.kongKeepsTing(p, 'bugang', m.tile)) continue;
+        bugang.push(m.tile);
       }
       return { hu: info, angang, bugang };
     }
 
     askDiscard(p, self) {
       const pl = this.players[p];
-      // 报听锁牌对掉线代打也生效。
+      // 报听锁牌对掉线代打也生效：自摸直接胡、只能打刚摸的那张，但「不影响听牌的杠」留给玩家决定。
       if (pl.tingDeclared) {
-        const auto = self && self.hu
-          ? { type: 'hu' }
-          : { type: 'discard', tile: pl.justDrawn != null ? pl.justDrawn : this.bestTingDiscard(p) };
-        return this.playAuto(p, self, auto, 340, true);
+        if (self && self.hu) return this.playAuto(p, self, { type: 'hu' }, 340, true);
+        const canKong = (self.angang || []).length > 0 || (self.bugang || []).length > 0;
+        if (!canKong) {
+          const tile = pl.justDrawn != null ? pl.justDrawn : this.bestTingDiscard(p);
+          return this.playAuto(p, self, { type: 'discard', tile }, 340, true);
+        }
       }
       if (!pl.isHuman) {
         return this.delay(360).then(() => {
@@ -548,8 +565,10 @@
         const c = R.counts(pl.hand);
         const acts = [];
         const info = R.winInfo(pl.hand.concat(tile), pl.melds, this.mode);
-        if (info && R.canChiPao(info)) acts.push('hu');
-        if (info && !R.canChiPao(info) && pl.isHuman) {
+        // 报听的人打出的牌没有吃炮门槛，三家都能胡
+        const free = !!this.players[from].tingDeclared;
+        if (info && (free || R.canChiPao(info))) acts.push('hu');
+        if (info && !free && !R.canChiPao(info) && pl.isHuman) {
           this.emit('blocked', { info, tile });
         }
         // 报听的人不能再碰 / 杠；幺筒是财神，谁也不能碰 / 杠
@@ -564,10 +583,8 @@
       const picks = [];
       const humanClaim = claims.find((c) => !this.isBotControlled(c.p));
       if (humanClaim) {
-        // 报听的人见炮就胡
-        const humanPick = this.players[0].tingDeclared && humanClaim.acts.includes('hu')
-          ? 'hu'
-          : await this.askClaim(tile, from, humanClaim);
+        // 报听也可以选择不胡，留着自摸；胡了就按报听分收
+        const humanPick = await this.askClaim(tile, from, humanClaim);
         if (humanPick) picks.push({ p: 0, type: humanPick, k: humanClaim.k });
       }
       for (const cl of claims) {
@@ -609,11 +626,8 @@
       const robbers = [];
       const human = claims.find((c) => !this.isBotControlled(c.p));
       if (human) {
-        if (this.players[0].tingDeclared) robbers.push({ p: 0, winTile: tile });
-        else {
-          const pick = await this.askClaim(tile, kongger, { acts: ['hu'], info: human.info, rob: true });
-          if (pick === 'hu') robbers.push({ p: 0, winTile: tile });
-        }
+        const pick = await this.askClaim(tile, kongger, { acts: ['hu'], info: human.info, rob: true });
+        if (pick === 'hu') robbers.push({ p: 0, winTile: tile });
       }
       for (const c of claims) {
         if (human && c.p === human.p) continue;
@@ -651,7 +665,10 @@
     humanDiscard(tile) {
       const a = this.awaiting;
       if (!a || a.kind !== 'discard' || a.player !== 0 || a.auto) return false;
-      if (!this.players[0].hand.includes(tile)) return false;
+      const pl = this.players[0];
+      if (!pl.hand.includes(tile)) return false;
+      // 报听锁牌：只能打刚摸到的那张（可以选择杠，但不能换张）
+      if (pl.tingDeclared && pl.justDrawn != null && tile !== pl.justDrawn) return false;
       this.awaiting = null;
       this.emitState();
       a.resolve({ type: 'discard', tile });
@@ -693,8 +710,8 @@
       pl.tingDeclared = true;
       pl.tianTing = this.isTianTing(pl);
       this.note(pl.tianTing
-        ? `${pl.name} 天听：庄家起手 13 张就听牌，打出 ${R.tileName(tile)} 后锁牌，胡牌 +${BONUS.tianting}`
-        : `${pl.name} 报听：打出 ${R.tileName(tile)} 后锁牌，胡牌 +${BONUS.baoting}`);
+        ? `${pl.name} 天听：庄家起手 13 张就听牌，打出 ${R.tileName(tile)} 后锁牌，胡牌 +${BONUS.tianting}（自摸三家各付，点炮那家付）`
+        : `${pl.name} 报听：打出 ${R.tileName(tile)} 后锁牌，胡牌 +${BONUS.baoting}（自摸三家各付，点炮那家付）`);
       this.emit('ting', { p, tianTing: pl.tianTing, tile });
       return pl.tianTing;
     }
@@ -810,6 +827,19 @@
         };
       });
 
+      // 报听的人放炮：向每位胡他牌的人各赔一份报听分（自摸 / 被点炮的报听分已经算在胡牌分里）
+      const tingDeltas = [0, 0, 0, 0];
+      for (const r of results) {
+        if (r.selfDraw) continue;
+        const payer = this.players[r.from];
+        if (!payer || !payer.tingDeclared) continue;
+        const pts = payer.tianTing ? BONUS.tianting : BONUS.baoting;
+        tingDeltas[r.from] -= pts;
+        tingDeltas[r.p] += pts;
+        this.note(`报听放炮：${payer.name} 的牌被胡，向 ${this.players[r.p].name} 赔 ${pts} 分`);
+      }
+      if (tingDeltas.some((n) => n)) this.applyDeltas(tingDeltas);
+
       // 自摸三家各付；点炮或抢杠由出牌者/补杠者向每位胡家各付一份。
       const winDeltas = [0, 0, 0, 0];
       for (const r of results) {
@@ -876,6 +906,7 @@
         points: first.points,
         extra: first.extra,
         winDeltas,
+        tingDeltas,
         kongDeltas,
         responsibilityDeltas,
         flip,

@@ -350,6 +350,79 @@ test('庄家配牌没听、首巡才听成，也只按报听算', () => {
   assert.equal(g.isTianTing(pl), false);
 });
 
+test('报听后仍可杠，但只保留杠完还听牌的杠', () => {
+  const g = new Game({ dealer: 0 });
+  g.phase = 'playing';
+  const pl = g.players[0];
+  pl.tingDeclared = true;
+  // 杠掉五万后：四条~六条 / 一筒~三筒 / 一万~三万 三副 + 单吊九筒 → 仍然听牌
+  pl.hand = handOf([
+    [W, 5], [W, 5], [W, 5], [W, 5], [TI, 1], [TI, 2], [TI, 3],
+    [P, 1], [P, 2], [P, 3], [W, 1], [W, 2], [W, 3], [P, 9]
+  ]);
+  pl.justDrawn = c(W, 5);
+  assert.deepEqual(g.selfActions(0).angang, [c(W, 5)], '不影响听牌的暗杠要给出');
+
+  // 同一手牌把九筒换成风马牛不相及的两张 → 杠完就散了，不能杠
+  pl.hand = handOf([
+    [W, 5], [W, 5], [W, 5], [W, 5], [TI, 1], [TI, 2], [TI, 3],
+    [P, 1], [P, 2], [P, 3], [W, 1], [W, 2], [P, 7], [P, 9]
+  ]);
+  assert.deepEqual(g.selfActions(0).angang, [], '杠完不听就不给杠');
+
+  // 报听后仍然只能打刚摸到的那张
+  g.awaiting = { kind: 'discard', player: 0, self: { hu: null, angang: [c(W, 5)], bugang: [] }, auto: false };
+  assert.equal(g.humanDiscard(c(W, 1)), false, '报听锁牌：不能换张');
+  g.awaiting = { kind: 'discard', player: 0, self: { hu: null, angang: [c(W, 5)], bugang: [] }, auto: false, resolve() {} };
+  assert.equal(g.humanDiscard(c(W, 5)), true, '可以打刚摸到的那张');
+});
+
+test('报听：放炮不吃门槛、可以选择不胡、被胡时向每个胡牌者赔 20', async () => {
+  const setup = () => {
+    const g = new Game({ dealer: 0, speed: 100 });
+    g.phase = 'playing';
+    g.wall = [];
+    // 自己只是平胡（4 分，不到吃炮门槛），听的是一对五万；牌里特意不放幺鸡 / 八筒，免得鸡分搅局
+    g.players[0].hand = handOf([
+      [TI, 2], [TI, 3], [TI, 4], [TI, 5], [TI, 6], [TI, 7],
+      [P, 1], [P, 2], [P, 3], [P, 4], [P, 5], [P, 6], [W, 5]
+    ]);
+    g.players[1].hand = handOf([
+      [W, 5], [W, 7], [W, 8], [W, 9], [TI, 7], [TI, 8], [TI, 9],
+      [P, 5], [P, 6], [W, 2], [W, 3], [W, 4], [TI, 4]
+    ]);
+    return g;
+  };
+
+  // 普通玩家放炮：平胡不够门槛，胡不了
+  const plain = setup();
+  plain.discard(1, c(W, 5));
+  assert.equal(await plain.resolveClaims(1, c(W, 5)), null, '没到门槛不能胡');
+
+  // 报听的人放炮：没门槛，三家都能胡；而且可以选择放过
+  const passable = setup();
+  passable.players[1].tingDeclared = true;
+  passable.discard(1, c(W, 5));
+  passable.on('prompt', (a) => { if (a.kind === 'claim') setTimeout(() => passable.humanRespond('pass'), 0); });
+  assert.equal(await passable.resolveClaims(1, c(W, 5)), null, '报听也可以选择不胡，留着自摸');
+
+  const g = setup();
+  g.players[1].tingDeclared = true;
+  g.discard(1, c(W, 5));
+  g.on('prompt', (a) => { if (a.kind === 'claim') setTimeout(() => g.humanRespond('hu'), 0); });
+  const claim = await g.resolveClaims(1, c(W, 5));
+  assert.equal(claim.type, 'hu');
+  assert.deepEqual(claim.winners.map((w) => w.p), [0]);
+
+  const res = g.settleWin(claim.winners, { selfDraw: false, from: 1 });
+  assert.equal(res.winners[0].points, 4, '平胡 4 分（自己没报听，没有报听加分）');
+  assert.equal(res.tingDeltas[1], -R.BONUS.baoting, '报听放炮的人赔 20');
+  assert.equal(res.tingDeltas[0], R.BONUS.baoting);
+  assert.equal(res.deltas[0], 4 + R.BONUS.baoting);
+  assert.equal(res.deltas[1], -(4 + R.BONUS.baoting));
+  assert.equal(res.deltas.reduce((a, b) => a + b, 0), 0);
+});
+
 test('报听 / 天听 / 天胡 / 热炮 / 抢杠 的加分', () => {
   const g = new Game({ dealer: 0 });
   g.phase = 'playing';
