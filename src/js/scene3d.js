@@ -35,7 +35,7 @@
     [-5.50, 0.04, -5.45], [5.50, 0.04, -5.45], [0, 0.04, -5.45],
     [-5.55, 0.12, -5.45], [5.55, 0.12, -5.45]
   ];
-  const RIVER = { cols: 7, start: -1.05, meldShift: -0.32, meldGapSelfMobile: 0.52, rowsSelfMobile: 2 };
+  const RIVER = { cols: 7, start: -1.05, meldShift: -0.32, meldGapSelfMobile: 0.36, rowsSelfMobile: 2 };
   const PANEL = { w: 1.90, h: 0.15 };                // 桌心铭牌
   const MELD_Z = -0.58;                              // 副露那条道的深度
   const MELD_Z_SELF_MOBILE = -0.55;                  // 手机兜底值；实际深度按手牌遮挡阴影动态算（selfMeldDepth）
