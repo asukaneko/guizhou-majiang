@@ -35,7 +35,7 @@
     [-5.50, 0.04, -5.45], [5.50, 0.04, -5.45], [0, 0.04, -5.45],
     [-5.55, 0.12, -5.45], [5.55, 0.12, -5.45]
   ];
-  const RIVER = { cols: 7, start: -1.05, meldShift: -0.32, meldShiftSelfMobile: -1.35, rowsSelfMobile: 2 };
+  const RIVER = { cols: 7, start: -1.05, meldShift: -0.32, meldGapSelfMobile: 0.52, rowsSelfMobile: 2 };
   const PANEL = { w: 1.90, h: 0.15 };                // 桌心铭牌
   const MELD_Z = -0.58;                              // 副露那条道的深度
   const MELD_Z_SELF_MOBILE = -0.55;                  // 手机兜底值；实际深度按手牌遮挡阴影动态算（selfMeldDepth）
@@ -659,12 +659,12 @@
   function placeRiver(seat, discards, ctx, meldCount) {
     const { cols, start, meldShift } = RIVER;
     const pitch = T.w + 0.05, rowPitch = T.h + 0.04;
-    // 自己那排副露被手牌顶到更靠桌心：牌河要整体往里让，而且只留两行，
-    // 保证牌河始终在自己碰/杠的上方（更远），永远不叠在一起
+    // 自己那排副露被手牌顶到更靠桌心：牌河紧贴副露上方、只留两行，
+    // 起点由副露实际深度推出来（固定留 meldGapSelfMobile 的道），保证不叠也不隔太远
     const selfMobile = seat.id === 0 && selfHandZ !== SELF_HAND.z;
-    const shift = selfMobile ? RIVER.meldShiftSelfMobile : meldShift;
-    const z0 = meldCount ? start + shift : start;
     const maxRows = meldCount ? (selfMobile ? RIVER.rowsSelfMobile : 3) : 4;
+    let z0 = meldCount ? start + meldShift : start;
+    if (selfMobile && meldCount) z0 = selfMeldDepth() - 0.51 - RIVER.meldGapSelfMobile - seat.z;
     // 手机上自己牌河只摆两行，超出的丢掉最旧的（保留最近的弃牌，信息更有用）
     const shown = discards.length > cols * maxRows && selfMobile ? discards.slice(-cols * maxRows) : discards.slice(0, cols * maxRows);
     shown.forEach((id, i) => {
