@@ -13,10 +13,32 @@
     { x: -4.05, z: 0, ry: -Math.PI / 2 }
   ];
   const HAND_GAP = 0.02;                             // 手牌之间的缝
-  const SELF_HAND = { z: 4.8, scale: 1.25 };           // 自己的手牌靠近镜头，单独放大
-  const RIVER = { cols: 7, start: -1.05, meldShift: -0.32 };
+  const SELF_HAND = { z: 4.8, zMobile: 4.05, scale: 1.25, scaleMobile: 1.45 };  // 自己手牌单独放大
+  let selfHandZ = SELF_HAND.z;                               // 手机上挪到绒面上，近侧木框让出画面
+  let selfHandScale = SELF_HAND.scale;                       // 手机上再放大一档
+  let selfMeldZ = -0.58;                                     // 自己副露的深度（跟着手牌大小走，resize 时改成 MELD_Z / MELD_Z_SELF_MOBILE）
+  // 机位：约 43° 俯视；宽扁屏（手机横屏）按内容包围盒自动拉远，保证四家牌河与手牌都在画面内
+  const CAM = { lookZ: 1.25, lookZMobile: 0.85, up: 8.2, back: 8.95, backMobile: 8.95, fov: 34,
+    dist: Math.hypot(8.2, 8.95) };
+  // 取景包围盒：hard 必须完整在画面内（四家手牌、牌河、桌心），soft 是远侧木框外沿，允许被顶部信息牌盖住
+  // 自己手牌的点跟着 selfHandZ 变（手机上挪到桌内），所以取景时动态生成
+  const fitHard = () => [
+    [-4.50, 0.02, -4.50], [4.50, 0.02, -4.50], [-4.50, 0.02, 4.50], [4.50, 0.02, 4.50],
+    [-4.55, 0.02, 0], [4.55, 0.02, 0], [0, 1.05, 0],
+    [-3.0, 0.02, selfMeldZ], [3.0, 0.02, selfMeldZ],        // 自己副露那一条也要在画面里
+    [-2.62, 0.56, -4.05], [2.62, 0.56, -4.05], [0, 0.56, -4.05],
+    [-4.05, 0.56, 2.6], [4.05, 0.56, 2.6], [-4.05, 0.56, -2.6], [4.05, 0.56, -2.6],
+    [-3.0 * selfHandScale, 0.04, selfHandZ + 0.15], [3.0 * selfHandScale, 0.04, selfHandZ + 0.15],
+    [0, 0.736 * selfHandScale, selfHandZ + 0.1], [0, 0.02, selfHandZ + 0.15]
+  ];
+  const FIT_SOFT = [
+    [-5.50, 0.04, -5.45], [5.50, 0.04, -5.45], [0, 0.04, -5.45],
+    [-5.55, 0.12, -5.45], [5.55, 0.12, -5.45]
+  ];
+  const RIVER = { cols: 7, start: -1.05, meldShift: -0.32, meldShiftSelfMobile: -1.35, rowsSelfMobile: 2 };
   const PANEL = { w: 1.90, h: 0.15 };                // 桌心铭牌
   const MELD_Z = -0.58;                              // 副露那条道的深度
+  const MELD_Z_SELF_MOBILE = -0.55;                  // 手机兜底值；实际深度按手牌遮挡阴影动态算（selfMeldDepth）
   const COMMON = { colors: {
     ivory: 0xf7f1e0, ivoryEdge: 0xe8ddc4, amber: 0xe0a044, amberDeep: 0xb87a2a,
     felt: 0x17365c, wood: 0x3a2418, brass: 0xc9a15c
@@ -45,7 +67,7 @@
   let hoverTile = null, pressedTile = null, discardPick = null, tipHandler = null, discardHandler = null, layoutHandler = null, readyHandler = null, kongHandler = null;
   let deal = null, lastDealId = 0;
   let tiles = new Map(), previous = null, previousGame = null, latest = null;
-  let pointerEvent = null, lastTime = null, lastFrameMoving = false;
+  let pointerEvent = null, lastTime = null, lastFrameMoving = false, lastPointerDown = -1e9;
   const pickLayer = new THREE.Group();
   const metrics = { frames: 0, activeFrames: 0, activeMs: 0, renderMs: 0 };
   let turnLight = null, shadowsDirty = true;
@@ -580,8 +602,8 @@
 
   function handLean() {
     if (!camera) return 0;
-    const dy = camera.position.y - tileHalfH * SELF_HAND.scale;
-    const dz = camera.position.z - SELF_HAND.z;
+    const dy = camera.position.y - tileHalfH * selfHandScale;
+    const dz = camera.position.z - selfHandZ;
     return Math.atan2(dy, dz);
   }
 
@@ -594,7 +616,7 @@
 
   /** 自己那排手牌：摸到的牌单独空一格摆在最右边，不并进牌列 */
   function placeHand(seat, tiles, ctx, drawn) {
-    const scale = SELF_HAND.scale, pitch = (T.w + HAND_GAP) * scale;
+    const scale = selfHandScale, pitch = (T.w + HAND_GAP) * scale;
     const main = tiles.slice();
     let hasDrawn = false;
     if (drawn != null && main.length > 1) {
@@ -607,7 +629,7 @@
     items.forEach((id, i) => {
       const extra = hasDrawn && i === items.length - 1 ? gapExtra : 0;
       const lx = -span / 2 + i * pitch + T.w * scale / 2 + extra;
-      const p = seatLocal(seat.x, SELF_HAND.z, seat.ry, lx, 0);
+      const p = seatLocal(seat.x, selfHandZ, seat.ry, lx, 0);
       const occurrence = items.slice(0, i).filter((t) => t === id).length;
       const tile = tileSpec(ctx, `hand:0:${id}:${occurrence}`, seat, 'hand', id, true);
       tile.userData.slot = i;
@@ -637,15 +659,33 @@
   function placeRiver(seat, discards, ctx, meldCount) {
     const { cols, start, meldShift } = RIVER;
     const pitch = T.w + 0.05, rowPitch = T.h + 0.04;
-    const z0 = meldCount ? start + meldShift : start;
-    const maxRows = meldCount ? 3 : 4;
-    discards.slice(0, cols * maxRows).forEach((id, i) => {
+    // 自己那排副露被手牌顶到更靠桌心：牌河要整体往里让，而且只留两行，
+    // 保证牌河始终在自己碰/杠的上方（更远），永远不叠在一起
+    const selfMobile = seat.id === 0 && selfHandZ !== SELF_HAND.z;
+    const shift = selfMobile ? RIVER.meldShiftSelfMobile : meldShift;
+    const z0 = meldCount ? start + shift : start;
+    const maxRows = meldCount ? (selfMobile ? RIVER.rowsSelfMobile : 3) : 4;
+    // 手机上自己牌河只摆两行，超出的丢掉最旧的（保留最近的弃牌，信息更有用）
+    const shown = discards.length > cols * maxRows && selfMobile ? discards.slice(-cols * maxRows) : discards.slice(0, cols * maxRows);
+    shown.forEach((id, i) => {
       const col = i % cols, row = Math.floor(i / cols);
       const lx = -((cols - 1) / 2) * pitch + col * pitch;
       const p = seatLocal(seat.x, seat.z, seat.ry, lx, z0 - row * rowPitch);
       const tile = tileSpec(ctx, `river:${seat.id}:${i}:${id}`, seat, 'river', id, true);
       layFlat(tile, seat.ry, p, 0);
     });
+  }
+
+  /** 自己副露该摆多深：视线越过手牌顶沿落到桌面的位置就是遮挡阴影边界，副露要摆在它后面 */
+  function selfMeldDepth() {
+    const fallback = SEAT[0].z + MELD_Z_SELF_MOBILE;
+    if (!camera) return fallback;
+    const topY = 0.55 * selfHandScale;               // 手牌顶沿高度（与取景点同一套口径）
+    const cy = camera.position.y, cz = camera.position.z;
+    if (cy <= topY + 0.2) return fallback;
+    const t = (cy - 0.12) / (cy - topY);              // 沿视线落到桌面（y≈0.12）的距离倍率
+    const zHit = cz + (selfHandZ - cz) * t;
+    return Math.min(fallback, zHit - 0.69);           // 再让开半张牌 + 一点余量
   }
 
   /** 副露：平摊在手内侧那一条道上，四家都能看见；暗杠四张背面朝上，只有自己点开才翻面 */
@@ -660,7 +700,8 @@
       const mine = seat.id === 0 && ctx.kongPeek.includes(mi);
       const hidden = m.type === 'angang' && !ctx.kongEnded && !mine;
       for (let ti = 0; ti < count(m); ti++) {
-        const p = seatLocal(seat.x, seat.z, seat.ry, lx, MELD_Z);
+        const mz = seat.id === 0 ? selfMeldDepth() - seat.z : MELD_Z;
+        const p = seatLocal(seat.x, seat.z, seat.ry, lx, mz);
         const id = hidden ? null : (m.tiles[ti] ?? null);
         const tile = tileSpec(ctx, `meld:${seat.id}:${mi}:${ti}`, seat, 'meld', id, !hidden && id != null);
         if (hidden && seat.id === 0) tile.userData.kong = mi;   // 自己的暗杠：可点开翻看
@@ -1033,6 +1074,7 @@
   }
 
   function onDown(e) {
+    lastPointerDown = performance.now();   // 给 touchend 兜底去重用（有 Pointer Events 时它不会重复出牌）
     if (e.button != null && e.button !== 0) return;
     if (pressedTile) return;
     advance(performance.now());
@@ -1072,6 +1114,53 @@
     Promise.all(jobs).then(done);
   }
 
+  /** 取景：把桌面 + 四家手牌/牌河塞进当前画幅。
+   *  桌面（1.62 左右）结果与固定机位基本一致；宽扁的手机横屏按高度填充并给顶部 HUD 留出安全带。 */
+  function frameCamera(aspect, w, h) {
+    const look = new THREE.Vector3(0, 0, CAM.lookZMobile);
+    // 矮画幅（手机）视角抬到约 50°：更接近俯视，手牌在桌面上的遮挡阴影更短，副露才放得下
+    const dir = new THREE.Vector3(0, CAM.up, h < 460 ? CAM.backMobile : CAM.back).normalize();
+    const p = new THREE.Vector3();
+    // 手机：顶部给矮信息牌留一条安全带，底部留一点，其余高度全部给牌桌
+    const topPx = h < 420 ? Math.max(30, Math.round(h * 0.09)) : 28;
+    const bottomPx = h < 420 ? Math.max(6, Math.round(h * 0.03)) : 16;
+    const sidePx = 10;
+    const limTop = 1 - (2 * topPx) / h;
+    const limTopSoft = 1 - (2 * (h < 420 ? 4 : 8)) / h;   // 远侧木框可以贴着上沿/被信息牌盖住
+    const limBottom = 1 - (2 * bottomPx) / h;
+    const limX = 1 - (2 * sidePx) / w;
+    const fitAt = (dist) => {
+      camera.position.copy(look).addScaledVector(dir, dist);
+      camera.aspect = aspect;
+      camera.fov = CAM.fov;
+      camera.updateProjectionMatrix();
+      camera.lookAt(look);
+      camera.updateMatrixWorld(true);
+      let mx = 0, upHard = 0, upSoft = 0, down = 0;
+      for (const [x, y, z] of fitHard()) {
+        p.set(x, y, z).project(camera);
+        mx = Math.max(mx, Math.abs(p.x));
+        if (p.y > 0) upHard = Math.max(upHard, p.y); else down = Math.max(down, -p.y);
+      }
+      for (const [x, y, z] of FIT_SOFT) {
+        p.set(x, y, z).project(camera);
+        mx = Math.max(mx, Math.abs(p.x));
+        if (p.y > 0) upSoft = Math.max(upSoft, p.y);
+      }
+      return Math.max(mx / limX, upHard / limTop, upSoft / limTopSoft, down / limBottom);
+    };
+    // 距离越远内容越小，二分找刚好装得下的最近机位（固定点迭代会在远侧过冲）
+    let lo = 5, hi = 44;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (fitAt(mid) <= 1) hi = mid; else lo = mid;
+    }
+    const dist = hi * (h < 420 ? 0.93 : 1);
+    camera.position.copy(look).addScaledVector(dir, dist);
+    camera.lookAt(look);
+    camera.updateProjectionMatrix();
+  }
+
   /** 画布尺寸跟着容器走，避免拉伸变形 */
   function resize() {
     if (!renderer || !canvas) return;
@@ -1080,8 +1169,24 @@
     if (!w || !h) return;
     renderer.setPixelRatio(Math.min(root.devicePixelRatio || 1, 2));
     renderer.setSize(w, h, false);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+    if (h >= 460) {
+      selfHandZ = SELF_HAND.z;
+      if (panelMesh) panelMesh.scale.setScalar(1);
+      selfHandScale = SELF_HAND.scale;
+      selfMeldZ = MELD_Z;
+      // 桌面保持原来的固定机位，手机/矮画幅才走自适应取景
+      camera.aspect = w / h;
+      camera.fov = CAM.fov;
+      camera.position.set(0, CAM.up, CAM.lookZ + CAM.back);
+      camera.lookAt(0, 0, CAM.lookZ);
+      camera.updateProjectionMatrix();
+    } else {
+      selfHandZ = SELF_HAND.zMobile;
+      if (panelMesh) panelMesh.scale.setScalar(0.85);
+      selfHandScale = SELF_HAND.scaleMobile;
+      selfMeldZ = MELD_Z_SELF_MOBILE;
+      frameCamera(w / h, w, h);
+    }
     invalidate();
   }
 
@@ -1103,9 +1208,9 @@
     renderer.shadowMap.autoUpdate = false;
 
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(34, 1200 / 740, 0.1, 140);
-    camera.position.set(0, 8.2, 10.2);     // 抬高到约 43° 俯视，兼顾四家牌河与自己手牌
-    camera.lookAt(0, 0, 1.25);
+    camera = new THREE.PerspectiveCamera(CAM.fov, 1200 / 740, 0.1, 140);
+    camera.position.set(0, CAM.up, CAM.lookZ + CAM.back);   // 约 43° 俯视，兼顾四家牌河与自己手牌
+    camera.lookAt(0, 0, CAM.lookZ);
 
     scene.add(new THREE.HemisphereLight(0x9dbce8, 0x050b14, 0.26));
     const key = new THREE.DirectionalLight(0xfff1dc, 1.28);
@@ -1137,6 +1242,15 @@
 
     canvas.addEventListener('pointermove', onMove);
     canvas.addEventListener('pointerdown', onDown);
+    // 有的手机浏览器不派发 Pointer Events，只给 touch*；这里补一条兜底（有 Pointer 时靠时间窗去重）
+    const onTouchEnd = (e) => {
+      if (e.touches.length) return;
+      if (performance.now() - lastPointerDown < 700) return;
+      const t = (e.changedTouches && e.changedTouches[0]);
+      if (!t) return;
+      onDown({ button: 0, clientX: t.clientX, clientY: t.clientY, pointerType: 'touch', preventDefault() {} });
+    };
+    canvas.addEventListener('touchend', onTouchEnd, { passive: true });
     canvas.addEventListener('pointerleave', () => {
       pointerEvent = null;
       setHover(null);
@@ -1214,6 +1328,8 @@
     drawPanel,
     invalidate,
     setActive,
+    /** 桌心铭牌显隐（保留接口；手机上也用 3D 这块） */
+    setPanelVisible(v) { if (panelMesh) panelMesh.visible = !!v; },
     stats() { return { ...metrics, animating: lastFrameMoving }; },
     onDiscard(fn) { discardHandler = fn; },
     onKong(fn) { kongHandler = fn; },
@@ -1233,16 +1349,37 @@
         cam: camera.position.toArray().map((n) => +n.toFixed(2)),
         fov: camera.fov, aspect: +camera.aspect.toFixed(4),
         client: [canvas.clientWidth, canvas.clientHeight], buf: [canvas.width, canvas.height],
-        handBase: proj(0, 0, SELF_HAND.z), handTop: proj(0, .72 * SELF_HAND.scale, SELF_HAND.z), panel: proj(0, 0.14, 0)
+        handBase: proj(0, 0, selfHandZ), handTop: proj(0, .72 * selfHandScale, selfHandZ), panel: proj(0, 0.14, 0)
       };
     },
     pickAt(x, y) { const n = pickTile(x, y); return n ? n.userData.tileId : null; },
+    /** 世界坐标 → 画布像素（手机端验收：确认四家牌河 / 手牌都在画面内） */
+    project(x, y, z) {
+      if (!camera || !canvas) return null;
+      const v = new THREE.Vector3(x, y, z).project(camera);
+      return [Math.round((v.x + 1) / 2 * canvas.clientWidth), Math.round((1 - v.y) / 2 * canvas.clientHeight)];
+    },
+    layoutInfo() {
+      const topY = 0.55 * selfHandScale;
+      const cy = camera ? camera.position.y : 0, cz = camera ? camera.position.z : 0;
+      const zHit = cy > topY ? cz + (selfHandZ - cz) * ((cy - 0.12) / (cy - topY)) : null;
+      return {
+        selfHandZ, selfHandScale, selfMeldZValue: selfMeldDepth(),
+        shadowZ: zHit == null ? null : +zHit.toFixed(2),
+        riverZ0: +(SEAT[0].z + RIVER.start + RIVER.meldShiftSelfMobile).toFixed(2),
+        cam: camera ? [camera.position.y, camera.position.z].map((n) => +n.toFixed(2)) : null
+      };
+    },
+    camDist() {
+      if (!camera) return null;
+      return +camera.position.distanceTo(new THREE.Vector3(0, 0, CAM.lookZ)).toFixed(2);
+    },
     /** 自己手牌右端在屏幕上的位置（听牌候选牌挂在这儿） */
     handEnd() {
       if (!canvas || !camera) return null;
       const last = seatGroups[seatGroups.length - 1];
       const x = last ? last.position.x + T.w * last.scale.x / 2 + .10 : SEAT[0].x + 1.0;
-      const z = last ? last.position.z : SELF_HAND.z;
+      const z = last ? last.position.z : selfHandZ;
       const v = new THREE.Vector3(x, 0.02, z).project(camera);
       const top = last ? new THREE.Vector3(0, tileHalfH, tileFrontZ + .004)
         .multiply(last.scale).applyQuaternion(last.quaternion).add(last.position).project(camera) : v;

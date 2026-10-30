@@ -3121,3 +3121,31 @@ body.mobile-table.in-game #fps { display: none; }
   body.mobile-table.in-game #hud .name { font-size: 10px; line-height: 12px; }
   body.mobile-table.in-game #hud .score { font-size: 9px; line-height: 11px; }
 }
+
+/* ================= 手机 3D 牌桌（实验） ================= */
+/* 手机也走 three.js 牌桌：DOM 牌桌整体让位，只保留 HUD / 操作区 / 提示这些屏幕层 */
+body.mobile-table.in-game.gl-table #gl { display: block !important; border-radius: 0; }
+/* DOM 牌桌整体让位给 3D（桌心也用 3D 那块铭牌）；#scene 不挡触摸 */
+body.mobile-table.in-game.gl-table #scene { display: none !important; }
+/* 触摸手势不要被浏览器的平移/缩放抢走（有的内核会让点牌失效） */
+body.mobile-table.in-game.gl-table #gl { touch-action: none; }
+/* 帧率角标在手机上会压住上家信息牌，直接不显示 */
+body.mobile-table.in-game.gl-table #fps { display: none; }
+/* 桌心信息用 DOM 那块（字号够大），3D 铭牌由 setPanelVisible(false) 关掉，避免重影 */
+/* 听牌候选条跟着 3D 手牌右端投影走，不再固定在右下角 */
+body.mobile-table.in-game.gl-table #ting-bar {
+  left: auto; right: auto; top: auto; bottom: auto;
+  max-width: none; gap: 4px; transform: translate(0, -100%);
+}
+body.mobile-table.in-game.gl-table #ting-bar .ting-tile { width: 26px; height: 36px; border-top-width: 4px; }
+body.mobile-table.in-game.gl-table #ting-bar .ting-count { font-size: 9px; }
+body.mobile-table.in-game.gl-table.table-actions-open #ting-bar { display: none; }
+
+/* 3D 牌桌要占满高度，顶部只留一条矮信息牌，别压住对家那排牌背 */
+body.mobile-table.in-game.gl-table #hud .hud-top { top: 2px; }
+body.mobile-table.in-game.gl-table #hud .hud-top .plate { min-height: 26px; padding: 1px 5px; gap: 3px; }
+body.mobile-table.in-game.gl-table #hud .hud-top .avatar { width: 18px; height: 20px; font-size: 12px; }
+body.mobile-table.in-game.gl-table #hud .hud-top .name { font-size: 10px; line-height: 11px; }
+body.mobile-table.in-game.gl-table #hud .hud-top .score { font-size: 9px; line-height: 10px; }
+/* 手牌放大后略高，操作区再抬高一点，别压到牌顶 */
+body.mobile-table.in-game.gl-table #actions { bottom: calc(var(--phone-hand-zone) + 10px); }

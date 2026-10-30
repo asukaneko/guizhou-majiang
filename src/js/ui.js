@@ -284,6 +284,8 @@
   }
 
   let glOn = false;
+  // 手机 + 没有 3D（无 WebGL / 初始化失败）才走 DOM 牌桌；开了 3D 的手机与桌面同一套逻辑
+  const domMobile = () => document.body.classList.contains('mobile-table') && !glOn;
   let opening = null, openingId = 0, openingSeen = { game: null, round: null };
   const openingNow = () => window.performance?.now() ?? Date.now();
 
@@ -302,7 +304,7 @@
         (p.handCount ?? p.hand.length) >= 13 && (p.handCount ?? p.hand.length) <= 14);
     if (opening && (opening.game !== game || opening.round !== round || !freshHand)) stopOpening();
     if (!document.body.classList.contains('in-game') ||
-        (glOn && !document.body.classList.contains('mobile-table') && !window.GZScene3D.ready) ||
+        (glOn && !window.GZScene3D.ready) ||
         (openingSeen.game === game && openingSeen.round === round)) return;
     openingSeen = { game, round };
     if (!freshHand || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -317,7 +319,7 @@
   }
 
   function animateOpeningHands() {
-    if (!opening || (glOn && !document.body.classList.contains('mobile-table'))) return;
+    if (!opening || glOn) return;
     const elapsed = openingNow() - opening.start;
     const directions = [[0, -52], [-52, 0], [0, 52], [52, 0]];
     for (let seat = 0; seat < 4; seat++) {
@@ -339,10 +341,10 @@
     }
   }
 
-  /** 挂上 three.js 牌桌；手机或无 WebGL 时继续用 DOM 牌桌 */
+  /** 挂上 three.js 牌桌；无 WebGL / 初始化失败时才退回 DOM 牌桌（手机同样用 3D） */
   function mountGL() {
     if (glOn) return true;
-    if (!game || document.body.classList.contains('mobile-table')) return false;
+    if (!game) return false;
     const cv = $('#gl');
     if (!cv || !window.GZScene3D) return false;
     if (!window.GZScene3D.init(cv)) return false;
@@ -365,6 +367,7 @@
     window.GZScene3D.onKong((index) => toggleKongPeek(index));
     document.body.classList.add('gl-table');
     glOn = true;
+    window.GZScene3D.setPanelVisible(true);
     return true;
   }
 
@@ -477,7 +480,7 @@
     // 听牌：按手牌样式排在右侧，每张角上标可见剩张
     const strip = drawn == null ? tingStripHtml() : '';
     const bar = $('#ting-bar');
-    if (glOn || document.body.classList.contains('mobile-table')) {
+    if (glOn || domMobile()) {
       // 3D 和手机使用独立候选区，避免听牌提示挤占手牌的宽度。
       if (bar) {
         setHtml(bar, strip);
@@ -496,7 +499,7 @@
   function placeTingBar() {
     const bar = $('#ting-bar');
     if (!bar || bar.classList.contains('hidden')) return;
-    if (document.body.classList.contains('mobile-table')) {
+    if (domMobile()) {
       bar.style.left = ''; bar.style.top = '';
       return;
     }
@@ -1615,7 +1618,7 @@
       const dt = now - last;
       if (dt >= 500) {
         let fps = Math.round((frames * 1000) / dt);
-        if (glOn && !document.body.classList.contains('mobile-table')) {
+        if (glOn) {
           const sample = window.GZScene3D.stats();
           const elapsed = glSample ? sample.activeMs - glSample.activeMs : sample.activeMs;
           const count = glSample ? sample.activeFrames - glSample.activeFrames : sample.activeFrames;
