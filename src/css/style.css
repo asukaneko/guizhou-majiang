@@ -1025,6 +1025,11 @@ body.in-game.chat-docked #toast { left: calc((100% - var(--chat-dock-width)) / 2
   border-radius: 2px;
 }
 
+/* 自己的暗杠扣着放，点一下翻看 */
+.meld.kong-flip { cursor: pointer; }
+.meld.kong-flip:hover .tile.backface { filter: brightness(1.14); }
+.meld.kong-flip:active .tile.backface { filter: brightness(0.9); }
+
 .hand-main.my-turn .tile { cursor: pointer; }
 
 /* 小屏时再压一压标题栏 */

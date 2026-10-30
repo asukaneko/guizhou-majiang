@@ -74,7 +74,24 @@
   let game = null;
   let blockedShown = false;
   let reviewGame = null, reviewRound = null;
+  // 暗杠默认四张背面朝上扣在自己面前；点一下临时翻看（按局清空）
+  const kongPeek = new Set();
+  let kongPeekRound = null;
   const el = {};
+
+  function kongPeekNow() {
+    const round = game?.state?.roundId ?? game?.roundNo ?? 0;
+    if (round !== kongPeekRound) { kongPeek.clear(); kongPeekRound = round; }
+    return kongPeek;
+  }
+
+  /** 点自己的暗杠：翻开 / 扣回，再重画一次（3D 与 DOM 牌桌共用这份状态） */
+  function toggleKongPeek(index) {
+    const peek = kongPeekNow();
+    if (peek.has(index)) peek.delete(index);
+    else peek.add(index);
+    render();
+  }
 
   function cacheDom() {
     el.stage = $('#stage');
@@ -216,12 +233,19 @@
   }
 
   function meldsHtml(p, seat) {
-    return p.melds.map((m) => {
-      const tiles = (m.type === 'angang' && seat !== 0 ? new Array(4).fill(null) : m.tiles).map((t) => {
-        if (m.type === 'angang' && seat !== 0) return `<div class="tile backface">${T.back()}</div>`;
-        return faceHtml(t);
-      }).join('');
-      return `<div class="meld">${tiles}</div>`;
+    const mine = seat === 0;
+    const peek = mine ? kongPeekNow() : null;
+    const ended = game?.phase === 'ended' && !!game.result;
+    return p.melds.map((m, mi) => {
+      // 暗杠四张背面朝上摆在桌上：别人的永远扣着（服务端本来也不下发牌面），自己的点一下翻看
+      const hidden = m.type === 'angang' && !ended && (!mine || !peek.has(mi));
+      if (hidden) {
+        const tiles = new Array(4).fill(`<div class="tile backface">${T.back()}</div>`).join('');
+        return mine
+          ? `<div class="meld kong-back kong-flip" data-kong="${mi}" title="暗杠：点一下翻看">${tiles}</div>`
+          : `<div class="meld kong-back">${tiles}</div>`;
+      }
+      return `<div class="meld">${m.tiles.map((t) => faceHtml(t)).join('')}</div>`;
     }).join('');
   }
 
@@ -338,6 +362,7 @@
       showTip(tile, x, y);
     });
     window.GZScene3D.onLayout(placeTingBar);
+    window.GZScene3D.onKong((index) => toggleKongPeek(index));
     document.body.classList.add('gl-table');
     glOn = true;
     return true;
@@ -349,7 +374,8 @@
       round: el.round.textContent,
       wall: el.wall.textContent,
       turn: el.turn.textContent,
-      opening: opening?.id || 0
+      opening: opening?.id || 0,
+      kongPeek: [...kongPeekNow()]
     });
     placeTingBar();
   }
@@ -1154,6 +1180,12 @@
 
   function bind() {
     document.addEventListener('click', (e) => {
+      // DOM 牌桌（手机/无 WebGL）上的暗杠：点一下翻看
+      const kong = e.target.closest('.meld.kong-flip');
+      if (kong && game) {
+        toggleKongPeek(+kong.dataset.kong);
+        return;
+      }
       const tile = e.target.closest('.hand-main .tile.playable');
       if (tile && game) {
         const a = game.awaiting;

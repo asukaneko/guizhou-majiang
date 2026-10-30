@@ -223,6 +223,39 @@ test('3D：对手出牌由牌背翻成牌面；碰牌接住飞行中的弃牌并
   assert.equal(h.nodes.filter((n) => n.userData.zone === 'river').length, 0);
 });
 
+test('3D：暗杠四张背面朝上占桌；别人的恒扣、自己的点一下翻看、结算后全亮', async () => {
+  const g = game(), h = await table();
+  g.players[0].melds = [{ type: 'angang', tile: 8, from: null, tiles: [8, 8, 8, 8] }];
+  // 联机时别人的暗杠只下发空 tiles，桌上仍要有四张
+  g.players[2].melds = [{ type: 'angang', tile: null, from: null, tiles: [] }];
+  h.sync(g, { kongPeek: [] });
+  h.drain();
+  const melds = () => h.nodes.filter((n) => n.userData.zone === 'meld');
+  assert.equal(melds().length, 8, '两家暗杠各占四张，别人的不能凭空消失');
+  assert.ok(melds().every((n) => n.userData.appearance === 'back'), '暗杠一律背面朝上');
+  assert.ok(melds().filter((n) => n.userData.seat === 2).every((n) => n.userData.kong == null), '别人的暗杠点不开');
+
+  // 自己的暗杠：点击只通知上层，由上层切换翻看状态后重新 sync
+  let asked = null;
+  h.api.onKong((mi) => { asked = mi; });
+  h.down(h.node('meld:0:0:0'));
+  assert.equal(asked, 0);
+  assert.equal(h.node('meld:0:0:0').userData.appearance, 'back', '点击本身不改变牌面');
+  h.sync(g, { kongPeek: [0] });
+  h.drain();
+  assert.equal(h.node('meld:0:0:0').userData.appearance, 'face:8');
+  assert.equal(h.node('meld:2:0:0').userData.appearance, 'back', '别人永远看不到暗杠牌面');
+
+  // 结算后四家牌面全亮
+  g.phase = 'ended';
+  g.result = { draw: false, winners: [] };
+  g.players[2].melds = [{ type: 'angang', tile: 26, from: null, tiles: [26, 26, 26, 26] }];
+  h.sync(g, { kongPeek: [] });
+  h.drain();
+  assert.equal(h.node('meld:2:0:0').userData.appearance, 'face:26');
+  assert.equal(h.node('meld:0:0:0').userData.appearance, 'face:8');
+});
+
 test('3D：摸到的牌在操作提示到达前就留在右端，提示切换不重新插入/跳位', async () => {
   const g = game(); g.players[0].hand.pop();
   g.awaiting = null;

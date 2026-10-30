@@ -42,7 +42,7 @@
   let assets = { face: {}, back: null };
   let ready = false, needsRender = false, frameId = 0, active = true;
   let sig = '';
-  let hoverTile = null, pressedTile = null, discardPick = null, tipHandler = null, discardHandler = null, layoutHandler = null, readyHandler = null;
+  let hoverTile = null, pressedTile = null, discardPick = null, tipHandler = null, discardHandler = null, layoutHandler = null, readyHandler = null, kongHandler = null;
   let deal = null, lastDealId = 0;
   let tiles = new Map(), previous = null, previousGame = null, latest = null;
   let pointerEvent = null, lastTime = null, lastFrameMoving = false;
@@ -648,19 +648,25 @@
     });
   }
 
-  /** 副露：平摊在手内侧那一条道上，四家都能看见 */
+  /** 副露：平摊在手内侧那一条道上，四家都能看见；暗杠四张背面朝上，只有自己点开才翻面 */
   function placeMelds(seat, melds, ctx) {
     if (!melds.length) return;
     const MELD_GAP = 0.12, pitch = T.w + 0.02;
-    const total = melds.reduce((s, m) => s + m.tiles.length * pitch, 0) + MELD_GAP * (melds.length - 1);
+    // 别人的暗杠不下发牌面（tiles=[]），但桌上仍然占四张的位置，不能凭空少一排
+    const count = (m) => (m.tiles.length || 4);
+    const total = melds.reduce((s, m) => s + count(m) * pitch, 0) + MELD_GAP * (melds.length - 1);
     let lx = -total / 2;
     melds.forEach((m, mi) => {
-      m.tiles.forEach((id, ti) => {
+      const mine = seat.id === 0 && ctx.kongPeek.includes(mi);
+      const hidden = m.type === 'angang' && !ctx.kongEnded && !mine;
+      for (let ti = 0; ti < count(m); ti++) {
         const p = seatLocal(seat.x, seat.z, seat.ry, lx, MELD_Z);
-        const tile = tileSpec(ctx, `meld:${seat.id}:${mi}:${ti}`, seat, 'meld', id, id != null);
+        const id = hidden ? null : (m.tiles[ti] ?? null);
+        const tile = tileSpec(ctx, `meld:${seat.id}:${mi}:${ti}`, seat, 'meld', id, !hidden && id != null);
+        if (hidden && seat.id === 0) tile.userData.kong = mi;   // 自己的暗杠：可点开翻看
         layFlat(tile, seat.ry, p, 0.004);
         lx += pitch;
-      });
+      }
       lx += MELD_GAP;
     });
   }
@@ -904,7 +910,7 @@
         spec.zone === 'meld' && oldZone !== 'meld' ? 'meld' : fresh && spec.zone === 'hand' ? 'draw' : 'move';
       appearance(node, spec.id, spec.faceUp);
       Object.assign(node.userData, { key: spec.key, zone: spec.zone, seat: spec.seat,
-        playable: !!spec.userData.playable, drawn: !!spec.userData.drawn });
+        playable: !!spec.userData.playable, kong: spec.userData.kong, drawn: !!spec.userData.drawn });
       targetPose(node, spec, now, animate || kind === 'deal', kind);
       next.set(spec.key, node);
     }
@@ -916,16 +922,19 @@
     seatGroups = [...tiles.values()].filter((n) => n.userData.zone === 'hand' && n.userData.seat === 0);
     for (const node of tiles.values()) {
       const d = node.userData;
-      if (d.playable && !d.pick) {
+      const pickable = d.playable || d.kong != null;   // 自己的暗杠也要能点开翻看
+      if (pickable && !d.pick) {
         d.pick = new THREE.Mesh(pickGeo, tileMaterials[0]);
         d.pick.userData.tile = node;
       }
       if (d.pick) {
-        if (d.playable) pickLayer.add(d.pick);
+        if (pickable) pickLayer.add(d.pick);
         else pickLayer.remove(d.pick);
       }
     }
-    if (!seatGroups.includes(hoverTile) || !hoverTile?.userData.playable) setHover(null);
+    const keepHover = hoverTile && (hoverTile.userData.kong != null ||
+      (hoverTile.userData.playable && seatGroups.includes(hoverTile)));
+    if (!keepHover) setHover(null);
     if (!seatGroups.includes(pressedTile) || !pressedTile?.userData.playable) pressedTile = null;
     if (discardPick && (!seatGroups.includes(discardPick.node) || now >= discardPick.until)) discardPick = null;
     advance(now);
@@ -944,6 +953,8 @@
       hand0: game.players[0].hand.slice().sort((a, b) => a - b),
       discards: game.players.map((p) => p.discards.slice()),
       melds: game.players.map((p) => p.melds.map((m) => ({ type: m.type, tiles: m.tiles }))),
+      kongPeek: (view && Array.isArray(view.kongPeek) ? view.kongPeek : []).slice(),
+      kongEnded: game.phase === 'ended' && !!game.result,
       playable: !!(game.awaiting && game.awaiting.kind === 'discard' && game.awaiting.player === 0 && !game.awaiting.auto),
       drawn: game.players[0].justDrawn ?? null,
       round: view && view.round,
@@ -974,7 +985,7 @@
     const panelChanged = !previous || snapshot.round !== previous.round || snapshot.wall !== previous.wall;
     sig = next;
 
-    const ctx = { items: [], playable: snapshot.playable };
+    const ctx = { items: [], playable: snapshot.playable, kongPeek: snapshot.kongPeek, kongEnded: snapshot.kongEnded };
     game.players.forEach((p, i) => {
       const seat = { id: i, x: SEAT[i].x, z: SEAT[i].z, ry: SEAT[i].ry };
       if (i === 0) placeHand(seat, snapshot.hand0, ctx, snapshot.drawn);
@@ -1026,7 +1037,13 @@
     if (pressedTile) return;
     advance(performance.now());
     const node = pickTile(e.clientX, e.clientY);
-    if (!node || !discardHandler) return;
+    if (!node) return;
+    // 自己的暗杠：点一下翻看/扣回，交给上层维护翻面状态再重新 sync
+    if (node.userData.kong != null) {
+      if (kongHandler) kongHandler(node.userData.kong);
+      return;
+    }
+    if (!discardHandler) return;
     pressedTile = node;
     node.userData.pressedUntil = performance.now() + 1000;
     discardPick = { node, until: node.userData.pressedUntil };
@@ -1164,8 +1181,9 @@
       const e = pointerEvent; pointerEvent = null;
       const node = pickTile(e.clientX, e.clientY);
       setHover(node);
-      if (node && tipHandler) tipHandler(node.userData.tileId, e.clientX, e.clientY);
-      moving = moving || !!node;
+      // 暗杠牌背不对鼠标显示牌名，只有自己的手牌才给提示
+      if (node && tipHandler) tipHandler(node.userData.kong != null ? null : node.userData.tileId, e.clientX, e.clientY);
+      moving = moving || !!(node && node.userData.kong == null);
     }
     if (needsRender || moving || wasMoving) {
       const layoutChanged = needsRender || shadowsDirty;
@@ -1198,6 +1216,7 @@
     setActive,
     stats() { return { ...metrics, animating: lastFrameMoving }; },
     onDiscard(fn) { discardHandler = fn; },
+    onKong(fn) { kongHandler = fn; },
     onTip(fn) { tipHandler = fn; },
     onLayout(fn) { layoutHandler = fn; },
     onReady(fn) { readyHandler = fn; },

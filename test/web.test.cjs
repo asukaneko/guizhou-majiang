@@ -322,6 +322,18 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
   assert.match(seats[0].querySelector('.hand-main').innerHTML, /role="button"/);
   assert.match(seats[1].querySelector('.plate').innerHTML, /&lt;img/);
   assert.equal((seats[2].querySelector('.melds').innerHTML.match(/backface/g) || []).length, 4);
+  // 自己的暗杠同样四张背面朝上，点一下翻看
+  g.players[0].melds.push({ type: 'angang', tile: 8, from: null, tiles: [8, 8, 8, 8] });
+  receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [] });
+  const ownMelds = () => seats[0].querySelector('.melds').innerHTML;
+  assert.equal((ownMelds().match(/backface/g) || []).length, 4, '自己的暗杠也要扣着放');
+  assert.match(ownMelds(), /class="meld kong-back kong-flip" data-kong="0"/);
+  const kongNode = { dataset: { kong: '0' } };
+  listeners.get('click')[0]({ target: { closest: (s) => (s === '.meld.kong-flip' ? kongNode : null) } });
+  assert.equal((ownMelds().match(/backface/g) || []).length, 0, '点一下翻看');
+  assert.equal((ownMelds().match(/data-tile="8"/g) || []).length, 4);
+  g.players[0].melds.pop();
+  receive({ t: 'snapshot', snap: { ...snapshot(g, 0), roomId: room.id }, fx: [] });
   assert.ok(ctx.GZOnline.started);
   receive({ t: 'room', room });
   assert.ok(ctx.GZOnline.started, '普通房间广播不能重置进场标记');
