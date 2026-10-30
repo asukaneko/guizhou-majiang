@@ -1080,7 +1080,7 @@
     </ul>
 
     <h3>报听 / 天听</h3>
-    <p>只能在本人首次出牌前、无副露且可以打牌听牌时点「<span class="hl">报听</span>」（+${R.BONUS.baoting}）：系统替你打出保持听牌的牌，之后手牌锁定，不能碰杠，摸什么打什么，见胡就胡。<span class="hl">庄家</span>配完 13 张就听牌并报听算<span class="hl">天听</span>（+${R.BONUS.tianting}），替代报听加分；<span class="hl">非庄家</span>就算开局 13 张就听牌，也只按报听（+${R.BONUS.baoting}）算。</p>
+    <p>只能在本人首次出牌前、无副露且可以打牌听牌时点「<span class="hl">报听</span>」（+${R.BONUS.baoting}）：系统替你打出保持听牌的牌，之后手牌锁定（只能打刚摸到的那张），也不能再碰 / 杠别人打出的牌；<span class="hl">自己回合仍可暗杠 / 补杠</span>，只限杠完还保持听牌的那种。自摸直接胡，别人点炮或抢杠时你可以选「胡」或「过」（过就继续等自摸）。<span class="hl">庄家</span>配完 13 张就听牌并报听算<span class="hl">天听</span>（+${R.BONUS.tianting}），替代报听加分；<span class="hl">非庄家</span>就算开局 13 张就听牌，也只按报听（+${R.BONUS.baoting}）算。报听者放炮要向每位胡牌者各赔一份报听分（天听 ${R.BONUS.tianting} / 报听 ${R.BONUS.baoting}）。</p>
 
     <h3>黄庄</h3>
     <p>牌墙摸完按查叫结算：未叫的人赔给每个叫牌者「其最高基础牌型的分值」，不加报听、天听或硬胡。杠和责任鸡作废，不翻牌、不算普通鸡；已发生的冲幺筒保留。</p>
@@ -1103,7 +1103,7 @@
     <ul>
       <li>天胡 <span class="hl">+${R.BONUS.tianhu}</span>：庄家配牌后第一摸就自摸</li>
       <li>地胡 <span class="hl">+${R.BONUS.dihu}</span>：下家第一摸自摸，或单独胡庄家打出的第一张</li>
-      <li>报听 <span class="hl">+${R.BONUS.baoting}</span>、天听 <span class="hl">+${R.BONUS.tianting}</span>：本人首次出牌前、无副露时声明，之后锁牌（只能打刚摸到的那张）；庄家配完 13 张即听牌算天听，其余（含非庄家起手听牌）都算报听，天听替代报听加分</li>
+      <li>报听 <span class="hl">+${R.BONUS.baoting}</span>、天听 <span class="hl">+${R.BONUS.tianting}</span>：本人首次出牌前、无副露时声明，之后锁牌（只能打刚摸到的那张）；庄家配完 13 张就听牌并报听算天听，其余（含非庄家起手听牌）都算报听，天听替代报听加分</li>
       <li>报听的分：<span class="hl">自摸</span>时其他三家各付一份，<span class="hl">点炮</span>只由放炮那家付；报听的人打出的牌被胡，他要向<span class="hl">每个</span>胡牌者各赔一份（报听 ${R.BONUS.baoting} 分 / 天听 ${R.BONUS.tianting} 分）</li>
       <li>报听后仍可以杠，只要杠完还保持听牌；报听的人打出的牌<span class="hl">不看吃炮门槛</span>，其他三家都能胡；别人打的牌他也可以选择不胡，留着自摸</li>
       <li>抢杠胡 <span class="hl">+${R.BONUS.qianggang}</span>，补杠者向每位胡家付一份</li>
