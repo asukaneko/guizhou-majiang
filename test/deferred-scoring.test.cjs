@@ -33,16 +33,17 @@ function finish(g) {
   return res;
 }
 
-test('胡牌时：听牌的明杠向原放杠者收4，暗杠和补杠向三家各收4；两种模式一致', async () => {
+test('胡牌时：听牌的明杠向原放杠者收4，暗杠向三家各收4；补杠是通行证不计分；两种模式一致', async () => {
   for (const mode of ['classic','yitong']) for (const type of ['minggang','angang','bugang']) {
     const g = make(mode); await kong(g, type, true);
     const res = finish(g);
     assert.equal(res.isTing[0], true, `${mode}/${type}`);
     assert.equal(g.players[0].tingDeclared, false, '自然听牌即可，不要求报听');
-    const expected = type === 'minggang' ? [4,0,0,-4] : [12,-4,-4,-4];
-    assert.deepEqual(res.kongDeltas, expected);
+    const expected = type === 'minggang' ? [4,0,0,-4] : type === 'bugang' ? [0,0,0,0] : [12,-4,-4,-4];
+    assert.deepEqual(res.kongDeltas, expected, `${mode}/${type}`);
     assert.deepEqual(res.kongLog[0].deltas, expected);
     assert.equal(res.kongLog[0].settled, true);
+    assert.equal(res.kongLog[0].pass, type === 'bugang', '补杠只是通行证');
     assert.equal(res.kongLog[0].reversed, false);
     assert.equal(res.kongLog[0].voided, false);
     const scores = g.scores.slice();
@@ -52,13 +53,14 @@ test('胡牌时：听牌的明杠向原放杠者收4，暗杠和补杠向三家�
   }
 });
 
-test('胡牌时：未听者每种杠均向每位听牌者赔4，非胡家也收分，其他未听者不收', async () => {
+test('胡牌时：未听者明杠/暗杠向每位听牌者赔4，非胡家也收分；补杠不计分', async () => {
   for (const mode of ['classic','yitong']) for (const type of ['minggang','angang','bugang']) {
     const g = make(mode); await kong(g, type, false);
     const res = finish(g);
     assert.deepEqual(res.isTing, [false,true,true,false], `${mode}/${type}`);
-    assert.deepEqual(res.kongDeltas, [-8,4,4,0], '暗杠也按每家4分，不能将原三家12分逐家反赔');
-    assert.equal(res.kongLog[0].reversed, true);
+    const expected = type === 'bugang' ? [0,0,0,0] : [-8,4,4,0];
+    assert.deepEqual(res.kongDeltas, expected, `${mode}/${type}`);
+    if (type !== 'bugang') assert.equal(res.kongLog[0].reversed, true);
   }
 });
 

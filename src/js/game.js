@@ -523,8 +523,11 @@
       pl.said = type === 'angang' ? '暗杠' : type === 'bugang' ? '补杠' : '明杠';
       this.turn = p;
 
-      this.kongLog.push({ p, type, tile, points: KONG_POINT, payers, deltas: [0, 0, 0, 0], settled: false, voided: false });
-      this.note(`${pl.name} ${pl.said}${type === 'angang' ? '' : ' ' + R.tileName(tile)}（每份 ${KONG_POINT} 分，胡牌时按听牌状态结算）`);
+      // 补杠：算通行证但不计分，只留记录
+      this.kongLog.push({ p, type, tile, points: type === 'bugang' ? 0 : KONG_POINT, pass: type === 'bugang', payers, deltas: [0, 0, 0, 0], settled: false, voided: false });
+      this.note(type === 'bugang'
+        ? `${pl.name} 补杠 ${R.tileName(tile)}（通行证，不计分）`
+        : `${pl.name} ${pl.said}${type === 'angang' ? '' : ' ' + R.tileName(tile)}（每份 ${KONG_POINT} 分，胡牌时按听牌状态结算）`);
       if (type === 'minggang') this.settleResponsibility(p, tile, from);
       this.lastKongBy = p; // 杠后打出的牌若被胡 → 热炮
       this.emit('call', { p, text: pl.said, tile });
@@ -765,6 +768,8 @@
       const kongDeltas = [0, 0, 0, 0], responsibilityDeltas = [0, 0, 0, 0];
       const settle = (entry, owner, payers, points, total) => {
         if (entry.settled) return;
+        // 补杠只是通行证，不参与计分
+        if (entry.pass) { Object.assign(entry, { deltas: [0, 0, 0, 0], settled: true, voided: false, reversed: false }); return; }
         const deltas = [0, 0, 0, 0];
         const move = (from, to) => { deltas[from] -= points; deltas[to] += points; };
         if (isTing) {

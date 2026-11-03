@@ -933,6 +933,7 @@
     };
     const notes = (res.kongLog || []).map((k) => {
       const kind = k.type === 'angang' ? '暗杠' : k.type === 'bugang' ? '补杠' : '明杠';
+      if (k.pass) return `${name(k.p)} ${kind} ${TN(k.tile)}：通行证，不计分`;
       return `${name(k.p)} ${kind} ${TN(k.tile)}：${outcome(k)}`;
     }).concat((res.penaltyLog || []).filter((k) => k.kind === '责任鸡').map((k) =>
       `${name(k.to)} 拿走 ${name(k.p)} 的冲锋鸡，责任鸡：${outcome(k)}`));
@@ -1070,7 +1071,7 @@
 
     <h3>豆（杠）</h3>
     <ul>
-      <li>杠时只记账，胡牌时统一结算；本人听牌才收分：暗杠、补杠向其他三家各收 ${R.KONG_POINT} 分，明杠向放杠者收 ${R.KONG_POINT} 分</li>
+      <li>杠时只记账，胡牌时统一结算；本人听牌才收分：暗杠向其他三家各收 ${R.KONG_POINT} 分，明杠向放杠者收 ${R.KONG_POINT} 分；<b>补杠只算通行证、不计分</b></li>
       <li>本人未听牌，每个杠向每位听牌者赔 ${R.KONG_POINT} 分；黄庄时本局所有杠分作废</li>
       <li>手里有豆就是「吃炮通行证」：点炮、抢杠都不看 ${R.CHI_PAO_MIN} 分门槛，平胡也能胡</li>
     </ul>

@@ -158,7 +158,8 @@ test('杠与责任鸡：杠每份4、责任鸡2分，操作时只记账不扣分
     assert.equal(await g.doKong(0, type, 0, 1), true);
     assert.deepEqual(g.scores, [0,0,0,0]);
     assert.deepEqual(g.roundDeltas, [0,0,0,0]);
-    assert.equal(g.kongLog[0].points, 4);
+    assert.equal(g.kongLog[0].points, type === 'bugang' ? 0 : 4, '补杠不计分');
+    assert.equal(g.kongLog[0].pass, type === 'bugang', '补杠只是通行证');
     assert.equal(g.kongLog[0].settled, false);
     assert.deepEqual(g.kongLog[0].payers, type === 'minggang' ? [1] : [1,2,3]);
     g.abort();

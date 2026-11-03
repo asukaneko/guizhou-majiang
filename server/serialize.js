@@ -41,7 +41,7 @@ function penaltyView(list, forSeat) {
 function kongView(list, forSeat) {
   return (list || []).map((k) => ({
     p: rotateSeat(k.p, forSeat), type: k.type, tile: k.tile, points: k.points,
-    payers: (k.payers || []).map((p) => rotateSeat(p, forSeat)), settled: k.settled, voided: k.voided, reversed: k.reversed,
+    payers: (k.payers || []).map((p) => rotateSeat(p, forSeat)), settled: k.settled, voided: k.voided, reversed: k.reversed, pass: !!k.pass,
     deltas: rotateArray(k.deltas, forSeat)
   }));
 }
