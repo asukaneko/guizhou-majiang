@@ -158,12 +158,24 @@ test('杠与责任鸡：杠每份4、责任鸡2分，操作时只记账不扣分
     assert.equal(await g.doKong(0, type, 0, 1), true);
     assert.deepEqual(g.scores, [0,0,0,0]);
     assert.deepEqual(g.roundDeltas, [0,0,0,0]);
-    assert.equal(g.kongLog[0].points, type === 'bugang' ? 0 : 4, '补杠不计分');
-    assert.equal(g.kongLog[0].pass, type === 'bugang', '补杠只是通行证');
+    assert.equal(g.kongLog[0].points, type === 'bugang' ? 0 : 4, '隔回合补杠不计分');
+    assert.equal(g.kongLog[0].pass, type === 'bugang', '隔回合补杠只是通行证');
     assert.equal(g.kongLog[0].settled, false);
     assert.deepEqual(g.kongLog[0].payers, type === 'minggang' ? [1] : [1,2,3]);
     g.abort();
   }
+  // 摸到第 4 张的当回合就补杠：按 4 分/份记账（不吃牌、不立刻扣分）
+  const quick = make();
+  quick.players[0].hand = repeat(0, 1);
+  quick.players[0].melds = [{ type: 'peng', tile: 0, tiles: [0, 0, 0] }];
+  quick.players[0].justDrawn = 0;
+  assert.equal(await quick.doKong(0, 'bugang', 0, 1), true);
+  assert.equal(quick.kongLog[0].points, 4, '当回合补杠计分');
+  assert.equal(quick.kongLog[0].pass, false);
+  assert.deepEqual(quick.kongLog[0].payers, [1, 2, 3]);
+  assert.deepEqual(quick.scores, [0, 0, 0, 0]);
+  quick.abort();
+
   const g = make(); g.players[0].hand = [9,9,9]; g.players[1].hand = [9];
   g.discard(1, 9); await g.doKong(0, 'minggang', 9, 1);
   assert.deepEqual(g.kongLog[0].deltas, [0,0,0,0]);

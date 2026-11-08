@@ -503,6 +503,9 @@
       }
       const pl = this.players[p];
       let payers;
+      // 补杠口径（2026-11-08 改）：摸到第 4 张的**同一回合**就杠，按 4 分/份 计（其他三家各付）；
+      // 手里扣着这张、隔了几巡才补杠的，只作吃炮通行证、不计分。
+      const quickBugang = type === 'bugang' && pl.justDrawn === tile;
 
       if (type === 'angang') {
         pl.hand = removeTiles(pl.hand, tile, 4);
@@ -523,10 +526,14 @@
       pl.said = type === 'angang' ? '暗杠' : type === 'bugang' ? '补杠' : '明杠';
       this.turn = p;
 
-      // 补杠：算通行证但不计分，只留记录
-      this.kongLog.push({ p, type, tile, points: type === 'bugang' ? 0 : KONG_POINT, pass: type === 'bugang', payers, deltas: [0, 0, 0, 0], settled: false, voided: false });
+      // 补杠：当回合杠计分；隔回合补杠只留通行证记录，不计分
+      const kongPoints = type === 'bugang' ? (quickBugang ? KONG_POINT : 0) : KONG_POINT;
+      const kongPass = type === 'bugang' && !quickBugang;
+      this.kongLog.push({ p, type, tile, points: kongPoints, pass: kongPass, payers, deltas: [0, 0, 0, 0], settled: false, voided: false });
       this.note(type === 'bugang'
-        ? `${pl.name} 补杠 ${R.tileName(tile)}（通行证，不计分）`
+        ? (quickBugang
+          ? `${pl.name} 补杠 ${R.tileName(tile)}（当回合杠，每份 ${KONG_POINT} 分，胡牌时按听牌状态结算）`
+          : `${pl.name} 补杠 ${R.tileName(tile)}（隔回合补杠，只算通行证，不计分）`)
         : `${pl.name} ${pl.said}${type === 'angang' ? '' : ' ' + R.tileName(tile)}（每份 ${KONG_POINT} 分，胡牌时按听牌状态结算）`);
       if (type === 'minggang') this.settleResponsibility(p, tile, from);
       this.lastKongBy = p; // 杠后打出的牌若被胡 → 热炮

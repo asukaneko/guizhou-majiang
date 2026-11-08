@@ -629,7 +629,15 @@
         const s = a.self || {};
         if (s.hu) html += `<button class="action-btn hu" data-act="hu">胡 ${s.hu.name}</button>`;
         (s.angang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="angang" data-tile="${t}">暗杠 ${TN(t)}</button>`; });
-        (s.bugang || []).forEach((t) => { html += `<button class="action-btn gang" data-act="bugang" data-tile="${t}">补杠 ${TN(t)}</button>`; });
+        // 补杠只有「摸到第 4 张的当回合」才计分，隔回合只是吃炮通行证——按钮上直说，别让人白杠
+        const drawn = game.players[0] ? game.players[0].justDrawn : null;
+        (s.bugang || []).forEach((t) => {
+          const quick = drawn === t;
+          const tip = quick
+            ? `当回合补杠：每份 ${R.KONG_POINT} 分，胡牌时按听牌状态结算`
+            : '隔回合补杠：只作吃炮通行证，不计分（想要分得在摸到这张的那一回合立刻杠）';
+          html += `<button class="action-btn gang${quick ? '' : ' quiet'}" data-act="bugang" data-tile="${t}" title="${tip}">补杠 ${TN(t)}${quick ? '' : '（无分）'}</button>`;
+        });
         if (game.canTing(0)) {
           const tian = myTianTing();
           const tip = tian
@@ -1083,7 +1091,7 @@
 
     <h3>豆（杠）</h3>
     <ul>
-      <li>杠时只记账，胡牌时统一结算；本人听牌才收分：暗杠向其他三家各收 ${R.KONG_POINT} 分，明杠向放杠者收 ${R.KONG_POINT} 分；<b>补杠只算通行证、不计分</b></li>
+      <li>杠时只记账，胡牌时统一结算；本人听牌才收分：暗杠向其他三家各收 ${R.KONG_POINT} 分，明杠向放杠者收 ${R.KONG_POINT} 分；<b>补杠要在摸到第 4 张的那一回合当场杠才计分</b>（其他三家各收 ${R.KONG_POINT} 分），<b>手里扣着隔回合才补杠只作吃炮通行证、不计分</b></li>
       <li>本人未听牌，每个杠向每位听牌者赔 ${R.KONG_POINT} 分；黄庄时本局所有杠分作废</li>
       <li>手里有豆就是「吃炮通行证」：点炮、抢杠都不看 ${R.CHI_PAO_MIN} 分门槛，平胡也能胡</li>
     </ul>

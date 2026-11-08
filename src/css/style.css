@@ -603,6 +603,14 @@ body.mobile-table.in-game { --tb-h: 42px; }
   background: linear-gradient(180deg, #c3d2ff, #6c86d8 60%, #4f66b4);
   box-shadow: 0 6px 18px rgba(108, 134, 216, 0.35), inset 0 1px 0 #e6ecff;
 }
+/* 补杠但隔回合（只作通行证、不计分）：压一档灰，和当回合计分的杠区分开 */
+.action-btn.gang.quiet {
+  color: #c7d3e6;
+  background: linear-gradient(180deg, #2b3b58, #1d2a40 60%, #16203300);
+  background-color: #1d2a40;
+  box-shadow: inset 0 1px 0 #46587a80, 0 4px 12px rgba(0, 0, 0, 0.3);
+  filter: saturate(0.5);
+}
 .action-btn.pass {
   color: #c9ded2;
   background: rgba(8, 22, 17, 0.86);

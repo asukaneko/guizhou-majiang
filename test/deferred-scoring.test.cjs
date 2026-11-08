@@ -33,7 +33,7 @@ function finish(g) {
   return res;
 }
 
-test('胡牌时：听牌的明杠向原放杠者收4，暗杠向三家各收4；补杠是通行证不计分；两种模式一致', async () => {
+test('胡牌时：听牌的明杠向原放杠者收4，暗杠向三家各收4；隔回合补杠只是通行证不计分；两种模式一致', async () => {
   for (const mode of ['classic','yitong']) for (const type of ['minggang','angang','bugang']) {
     const g = make(mode); await kong(g, type, true);
     const res = finish(g);
@@ -43,7 +43,7 @@ test('胡牌时：听牌的明杠向原放杠者收4，暗杠向三家各收4；
     assert.deepEqual(res.kongDeltas, expected, `${mode}/${type}`);
     assert.deepEqual(res.kongLog[0].deltas, expected);
     assert.equal(res.kongLog[0].settled, true);
-    assert.equal(res.kongLog[0].pass, type === 'bugang', '补杠只是通行证');
+    assert.equal(res.kongLog[0].pass, type === 'bugang', '隔回合补杠只是通行证');
     assert.equal(res.kongLog[0].reversed, false);
     assert.equal(res.kongLog[0].voided, false);
     const scores = g.scores.slice();
@@ -53,7 +53,44 @@ test('胡牌时：听牌的明杠向原放杠者收4，暗杠向三家各收4；
   }
 });
 
-test('胡牌时：未听者明杠/暗杠向每位听牌者赔4，非胡家也收分；补杠不计分', async () => {
+test('胡牌时：摸到第4张当回合就补杠按 4 分/份计（与暗杠同档），隔回合才补杠仍是通行证', async () => {
+  for (const mode of ['classic', 'yitong']) {
+    // 当回合：刚摸到这张，justDrawn 就是它
+    const quick = make(mode);
+    quick.players[0].hand = ready10().concat([0]);
+    quick.players[0].melds = [{ type: 'peng', tile: 0, tiles: [0, 0, 0] }];
+    quick.players[0].justDrawn = 0;
+    assert.equal(await quick.doKong(0, 'bugang', 0, 3), true);
+    assert.equal(quick.kongLog[0].points, 4, '当回合补杠按每份 4 分记账');
+    assert.equal(quick.kongLog[0].pass, false);
+    const res = finish(quick);
+    assert.deepEqual(res.kongDeltas, [12, -4, -4, -4], `${mode}/当回合补杠听牌时三家各付4`);
+    assert.deepEqual(res.kongLog[0].deltas, [12, -4, -4, -4]);
+
+    // 隔回合：牌扣在手里好几巡了（justDrawn 已经不是它）
+    const slow = make(mode);
+    slow.players[0].hand = ready10().concat([0]);
+    slow.players[0].melds = [{ type: 'peng', tile: 0, tiles: [0, 0, 0] }];
+    slow.players[0].justDrawn = 7;
+    assert.equal(await slow.doKong(0, 'bugang', 0, 3), true);
+    assert.equal(slow.kongLog[0].points, 0, '隔回合补杠不计分');
+    assert.equal(slow.kongLog[0].pass, true);
+    assert.deepEqual(finish(slow).kongDeltas, [0, 0, 0, 0]);
+  }
+
+  // 当回合补杠但本人未听牌：反过来向每位听牌者赔 4
+  const g = make();
+  g.players[0].hand = junk10().concat([0]);
+  g.players[0].melds = [{ type: 'peng', tile: 0, tiles: [0, 0, 0] }];
+  g.players[0].justDrawn = 0;
+  await g.doKong(0, 'bugang', 0, 3);
+  const res = finish(g);
+  assert.deepEqual(res.isTing, [false, true, true, false]);
+  assert.deepEqual(res.kongDeltas, [-8, 4, 4, 0]);
+  assert.equal(res.kongLog[0].reversed, true);
+});
+
+test('胡牌时：未听者明杠/暗杠向每位听牌者赔4，非胡家也收分；隔回合补杠不计分', async () => {
   for (const mode of ['classic','yitong']) for (const type of ['minggang','angang','bugang']) {
     const g = make(mode); await kong(g, type, false);
     const res = finish(g);
