@@ -508,6 +508,18 @@
     const stage = el.stage;
     if (!pt || !stage) return;
     const sr = stage.getBoundingClientRect();
+    if (document.body.classList.contains('rotate-game')) {
+      // 竖拿手机时整页转了 90°：舞台局部 x 沿屏幕向下、y 沿屏幕向左（包围盒宽高互换）
+      const localW = stage.offsetWidth || sr.height;
+      const localH = stage.offsetHeight || sr.width;
+      let left = (pt.y - sr.top) + 8;
+      let top = (sr.left + sr.width - pt.x) + 6;
+      left = Math.min(left, Math.max(12, localW - bar.offsetWidth - 12));
+      top = Math.min(top, Math.max(12, localH - bar.offsetHeight - 12));
+      bar.style.left = left + 'px';
+      bar.style.top = top + 'px';
+      return;
+    }
     const k = sr.width / (stage.offsetWidth || sr.width) || 1;
     const stageWidth = stage.offsetWidth || sr.width / k;
     let left = (pt.x - sr.left) / k + 8;

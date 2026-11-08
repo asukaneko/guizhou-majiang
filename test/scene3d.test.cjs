@@ -7,7 +7,7 @@ const THREE = require('../src/vendor/three.min.js');
 
 // 使用项目实际的 Three.js 几何、相机、射线和四元数；仅替换 GPU/图片加载与时钟。
 // 不启动浏览器，验证连续帧中的位置、实体生命周期和真实命中区域。
-async function table({ reduced = false, beforeReady } = {}) {
+async function table({ reduced = false, beforeReady, rotate = false } = {}) {
   let now = 0, id = 0, renderer, picks = 0;
   const frames = new Map(), events = new Map(), documentEvents = new Map();
   const media = { matches: reduced, addEventListener(name, fn) { this.changed = fn; } };
@@ -30,7 +30,10 @@ async function table({ reduced = false, beforeReady } = {}) {
   const canvas = {
     style: {}, width: 1200, height: 740, clientWidth: 1200, clientHeight: 740,
     addEventListener: (name, fn) => events.set(name, fn),
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1200, height: 740 })
+    // 竖拿手机时整页转了 90°：包围盒宽高互换（局部 1200×740 → 屏幕 740×1200）
+    getBoundingClientRect: () => (rotate
+      ? { left: 0, top: 0, width: 740, height: 1200 }
+      : { left: 0, top: 0, width: 1200, height: 740 })
   };
   const ctx = vm.createContext({
     THREE: { ...THREE, WebGLRenderer: Renderer, Raycaster,
@@ -38,7 +41,9 @@ async function table({ reduced = false, beforeReady } = {}) {
     performance: { now: () => now }, devicePixelRatio: 1,
     matchMedia: () => media, addEventListener() {},
     requestAnimationFrame: (fn) => { frames.set(++id, fn); return id; },
-    document: { hidden: false, createElement: () => ({ getContext: () => context2d }),
+    document: { hidden: false,
+      body: { classList: { contains: (c) => !!rotate && c === 'rotate-game' } },
+      createElement: () => ({ getContext: () => context2d }),
       addEventListener: (name, fn) => documentEvents.set(name, fn) }
   });
   ctx.window = ctx;
@@ -146,6 +151,17 @@ test('3D：悬停连续上浮、快速换牌/离开平滑回落，命中区不�
   const y = b.position.y;
   h.leave(); near(b.position.y, y);
   h.drain(); near(a.position.y, rest); near(b.position.y, b.userData.targetPosition.y);
+});
+
+test('3D：竖屏旋转（body.rotate-game）后点牌仍换算回画布局部坐标', async () => {
+  // iPhone 锁了竖屏（系统方向锁 + Safari 不支持锁横屏）时整页被 rotate(90deg) 转过，
+  // getBoundingClientRect() 只剩旋转后的包围盒，按老公式会把 x/y 轴用反 → 点牌没反应
+  const g = game(), h = await table({ rotate: true }); h.sync(g); h.drain();
+  const node = h.node('hand:0:9:0');
+  const v = node.localToWorld(new THREE.Vector3(0, 0, 0)).project(h.renderer.camera);
+  const lx = (v.x + 1) / 2 * 1200, ly = (1 - v.y) / 2 * 740;
+  assert.equal(h.api.pickAt(740 - ly, lx), 9, '屏幕坐标要按 90° 反变换回画布局部坐标');
+  assert.equal(h.api.pickAt(...Object.values(h.api.screenOf(9))), 9, 'screenOf 与 pickAt 在旋转下互逆');
 });
 
 test('3D：点击的重复牌从当前位置飞入牌河，手牌补位；中途快照不会重启动画', async () => {

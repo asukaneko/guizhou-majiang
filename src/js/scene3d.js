@@ -1044,12 +1044,42 @@
   }
 
   /* ---------------- 交互 ---------------- */
-  function pickTile(clientX, clientY) {
-    if (!canvas || !active || !pickLayer.children.length) return null;
+  /** 屏幕坐标 → 画布 NDC。
+   *  竖拿手机（系统开了方向锁，iOS 又锁不了横屏）时整页被 body.rotate-game 顺时针转了 90°，
+   *  getBoundingClientRect() 只剩旋转后的包围盒（宽高互换），直接套公式会把 x/y 轴用反：
+   *  点在自己手牌上拾不到牌，只有贴着屏幕边才偶尔打出一张不想打的牌
+   *  （2026-11-08 苹果手机反馈「要点到屏幕最右边才能打出最左边的牌」）。 */
+  function pointerNDC(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
-    pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-    pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    const body = root.document && root.document.body;
+    const rotated = !!(body && body.classList && body.classList.contains('rotate-game'));
+    if (rotated) {
+      // 局部 (lx,ly) 顺时针转 90° 后落在屏幕 (rect.right-ly, rect.top+lx)
+      const lx = clientY - rect.top, ly = rect.left + rect.width - clientX;
+      return { x: (lx / rect.height) * 2 - 1, y: -(ly / rect.width) * 2 + 1 };
+    }
+    return {
+      x: ((clientX - rect.left) / rect.width) * 2 - 1,
+      y: -((clientY - rect.top) / rect.height) * 2 + 1
+    };
+  }
+
+  /** 画布局部像素 → 屏幕像素（pointerNDC 的反向，竖屏旋转时同样按 90° 换算） */
+  function localToClient(lx, ly) {
+    const rect = canvas.getBoundingClientRect();
+    const body = root.document && root.document.body;
+    const rotated = !!(body && body.classList && body.classList.contains('rotate-game'));
+    if (rotated) return { x: rect.left + rect.width - ly, y: rect.top + lx };
+    return { x: rect.left + lx, y: rect.top + ly };
+  }
+
+  function pickTile(clientX, clientY) {
+    if (!canvas || !active || !pickLayer.children.length) return null;
+    const ndc = pointerNDC(clientX, clientY);
+    if (!ndc) return null;
+    pointer.x = ndc.x;
+    pointer.y = ndc.y;
     pickLayer.updateMatrixWorld(true);
     camera.updateMatrixWorld();
     raycaster.setFromCamera(pointer, camera);
@@ -1383,17 +1413,17 @@
       const v = new THREE.Vector3(x, 0.02, z).project(camera);
       const top = last ? new THREE.Vector3(0, tileHalfH, tileFrontZ + .004)
         .multiply(last.scale).applyQuaternion(last.quaternion).add(last.position).project(camera) : v;
-      const r = canvas.getBoundingClientRect();
-      return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height,
-        top: r.top + ((1 - top.y) / 2) * r.height };
+      return {
+        ...localToClient((v.x + 1) / 2 * canvas.clientWidth, (1 - v.y) / 2 * canvas.clientHeight),
+        top: localToClient((top.x + 1) / 2 * canvas.clientWidth, (1 - top.y) / 2 * canvas.clientHeight).y
+      };
     },
     /** 某张手牌在屏幕上的位置（截图和自检用） */
     screenOf(tileId) {
       const t = seatGroups.find((n) => n.userData.tileId === tileId);
       if (!t || !canvas) return null;
       const v = new THREE.Vector3().copy(t.position).project(camera);
-      const r = canvas.getBoundingClientRect();
-      return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height };
+      return localToClient((v.x + 1) / 2 * canvas.clientWidth, (1 - v.y) / 2 * canvas.clientHeight);
     }
   };
 })(typeof window !== 'undefined' ? window : globalThis);
