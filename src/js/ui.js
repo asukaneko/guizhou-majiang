@@ -495,7 +495,7 @@
     node.classList.toggle('my-turn', canPlay);
   }
 
-  /** 把听牌候选条对到 3D 手牌右端（舞台有缩放，要换算成局部坐标） */
+  /** 把听牌候选条对到 3D 手牌右端（handEnd 给舞台局部像素，不用再管缩放的画布/旋转） */
   function placeTingBar() {
     const bar = $('#ting-bar');
     if (!bar || bar.classList.contains('hidden')) return;
@@ -506,31 +506,20 @@
     if (!glOn || !window.GZScene3D || !window.GZScene3D.handEnd) return;
     const pt = window.GZScene3D.handEnd();
     const stage = el.stage;
-    if (!pt || !stage) return;
-    const sr = stage.getBoundingClientRect();
-    if (document.body.classList.contains('rotate-game')) {
-      // 竖拿手机时整页转了 90°：舞台局部 x 沿屏幕向下、y 沿屏幕向左（包围盒宽高互换）
-      const localW = stage.offsetWidth || sr.height;
-      const localH = stage.offsetHeight || sr.width;
-      let left = (pt.y - sr.top) + 8;
-      let top = (sr.left + sr.width - pt.x) + 6;
-      left = Math.min(left, Math.max(12, localW - bar.offsetWidth - 12));
-      top = Math.min(top, Math.max(12, localH - bar.offsetHeight - 12));
-      bar.style.left = left + 'px';
-      bar.style.top = top + 'px';
-      return;
-    }
-    const k = sr.width / (stage.offsetWidth || sr.width) || 1;
-    const stageWidth = stage.offsetWidth || sr.width / k;
-    let left = (pt.x - sr.left) / k + 8;
-    let top = (pt.y - sr.top) / k + 6;
-    if (left + bar.offsetWidth > stageWidth - 12) {
+    if (!pt || !stage || pt.lx == null) return;
+    const stageW = stage.offsetWidth || 1200;
+    const stageH = stage.offsetHeight || 740;
+    const barW = bar.offsetWidth, barH = bar.offsetHeight;
+    let left = pt.lx + 8;
+    let top = pt.ly + 6;
+    if (left + barW > stageW - 12) {
       // 放大的手牌占满横向空间时，把候选条放在手牌上方并收进画布。
-      left = Math.max(12, stageWidth - bar.offsetWidth - 12);
-      top = (pt.top - sr.top) / k - 10;
+      left = Math.max(12, stageW - barW - 12);
+      top = pt.ltop - 10;
     }
-    bar.style.left = left + 'px';
-    bar.style.top = top + 'px';
+    // translate(0,-100%) 让 top 是候选条的底边：上下都夹在画布内，别被裁掉
+    bar.style.left = Math.min(Math.max(8, left), Math.max(8, stageW - barW - 8)) + 'px';
+    bar.style.top = Math.min(Math.max(barH + 8, top), Math.max(barH + 8, stageH - 8)) + 'px';
   }
 
   /** 听牌张（手牌样式 + 剩余张数角标），最多展示 4 张，其余用 +N */

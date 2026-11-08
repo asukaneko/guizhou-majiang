@@ -1065,13 +1065,18 @@
     };
   }
 
-  /** 画布局部像素 → 屏幕像素（pointerNDC 的反向，竖屏旋转时同样按 90° 换算） */
+  /** 画布局部像素 → 屏幕像素（pointerNDC 的反向，竖屏旋转时同样按 90° 换算）。
+   *  桌面 #stage 带 transform: scale()（1200×740 撑到视口），局部像素要先乘 rect/布局 的比例
+   *  才是屏幕像素；少乘这一下，听牌候选条会落到手牌右端 1/scale 处（2026-11-09 反馈的
+   *  「听牌位置变了，不在手牌右边」就是这里）。竖屏旋转时两轴互换：局部 x 的量对应包围盒高。 */
   function localToClient(lx, ly) {
     const rect = canvas.getBoundingClientRect();
     const body = root.document && root.document.body;
     const rotated = !!(body && body.classList && body.classList.contains('rotate-game'));
-    if (rotated) return { x: rect.left + rect.width - ly, y: rect.top + lx };
-    return { x: rect.left + lx, y: rect.top + ly };
+    const sx = canvas.clientWidth ? (rotated ? rect.height : rect.width) / canvas.clientWidth : 1;
+    const sy = canvas.clientHeight ? (rotated ? rect.width : rect.height) / canvas.clientHeight : 1;
+    if (rotated) return { x: rect.left + rect.width - ly * sy, y: rect.top + lx * sx };
+    return { x: rect.left + lx * sx, y: rect.top + ly * sy };
   }
 
   function pickTile(clientX, clientY) {
@@ -1404,7 +1409,7 @@
       if (!camera) return null;
       return +camera.position.distanceTo(new THREE.Vector3(0, 0, CAM.lookZ)).toFixed(2);
     },
-    /** 自己手牌右端在屏幕上的位置（听牌候选牌挂在这儿） */
+    /** 自己手牌右端的位置：l* 是舞台局部像素（听牌候选条直接贴这个），其余是屏幕像素 */
     handEnd() {
       if (!canvas || !camera) return null;
       const last = seatGroups[seatGroups.length - 1];
@@ -1413,9 +1418,12 @@
       const v = new THREE.Vector3(x, 0.02, z).project(camera);
       const top = last ? new THREE.Vector3(0, tileHalfH, tileFrontZ + .004)
         .multiply(last.scale).applyQuaternion(last.quaternion).add(last.position).project(camera) : v;
+      const lx = (v.x + 1) / 2 * canvas.clientWidth, ly = (1 - v.y) / 2 * canvas.clientHeight;
+      const ltop = (1 - top.y) / 2 * canvas.clientHeight;
       return {
-        ...localToClient((v.x + 1) / 2 * canvas.clientWidth, (1 - v.y) / 2 * canvas.clientHeight),
-        top: localToClient((top.x + 1) / 2 * canvas.clientWidth, (1 - top.y) / 2 * canvas.clientHeight).y
+        ...localToClient(lx, ly),
+        top: localToClient(lx, ltop).y,
+        lx, ly, ltop
       };
     },
     /** 某张手牌在屏幕上的位置（截图和自检用） */

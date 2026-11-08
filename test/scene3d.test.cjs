@@ -7,7 +7,7 @@ const THREE = require('../src/vendor/three.min.js');
 
 // 使用项目实际的 Three.js 几何、相机、射线和四元数；仅替换 GPU/图片加载与时钟。
 // 不启动浏览器，验证连续帧中的位置、实体生命周期和真实命中区域。
-async function table({ reduced = false, beforeReady, rotate = false } = {}) {
+async function table({ reduced = false, beforeReady, rotate = false, scale = 1 } = {}) {
   let now = 0, id = 0, renderer, picks = 0;
   const frames = new Map(), events = new Map(), documentEvents = new Map();
   const media = { matches: reduced, addEventListener(name, fn) { this.changed = fn; } };
@@ -30,10 +30,11 @@ async function table({ reduced = false, beforeReady, rotate = false } = {}) {
   const canvas = {
     style: {}, width: 1200, height: 740, clientWidth: 1200, clientHeight: 740,
     addEventListener: (name, fn) => events.set(name, fn),
-    // 竖拿手机时整页转了 90°：包围盒宽高互换（局部 1200×740 → 屏幕 740×1200）
+    // 竖拿手机时整页转了 90°：包围盒宽高互换（局部 1200×740 → 屏幕 740×1200）；
+    // scale 模拟桌面 #stage 的 transform: scale()：局部尺寸不变、包围盒按比例放大
     getBoundingClientRect: () => (rotate
-      ? { left: 0, top: 0, width: 740, height: 1200 }
-      : { left: 0, top: 0, width: 1200, height: 740 })
+      ? { left: 0, top: 0, width: 740 * scale, height: 1200 * scale }
+      : { left: 0, top: 0, width: 1200 * scale, height: 740 * scale })
   };
   const ctx = vm.createContext({
     THREE: { ...THREE, WebGLRenderer: Renderer, Raycaster,
@@ -162,6 +163,22 @@ test('3D：竖屏旋转（body.rotate-game）后点牌仍换算回画布局部�
   const lx = (v.x + 1) / 2 * 1200, ly = (1 - v.y) / 2 * 740;
   assert.equal(h.api.pickAt(740 - ly, lx), 9, '屏幕坐标要按 90° 反变换回画布局部坐标');
   assert.equal(h.api.pickAt(...Object.values(h.api.screenOf(9))), 9, 'screenOf 与 pickAt 在旋转下互逆');
+});
+
+test('3D：舞台 CSS 缩放时 screenOf / handEnd 仍给屏幕像素（听牌条不跑偏）', async () => {
+  // 桌面 #stage 是固定 1200×740 再 transform: scale() 撑满视口，画布局部像素必须乘缩放比
+  // 才是屏幕像素；漏乘时听牌候选条会贴到手牌右端的 1/scale 处（2026-11-09 反馈）
+  const S = 1.5, g = game(), h = await table({ scale: S }); h.sync(g); h.drain();
+  const node = h.node('hand:0:26:0');
+  const v = node.localToWorld(new THREE.Vector3(0, 0, 0)).project(h.renderer.camera);
+  const lx = (v.x + 1) / 2 * 1200, ly = (1 - v.y) / 2 * 740;
+  const p = h.api.screenOf(26);
+  near(p.x, lx * S, .5);
+  near(p.y, ly * S, .5);
+  assert.equal(h.api.pickAt(p.x, p.y), 26, '缩放后的屏幕坐标仍要能点中同一张牌');
+  const he = h.api.handEnd();
+  assert.ok(he.x > p.x + 4, `听牌条应在手牌右端之外（${he.x} > ${p.x}）`);
+  assert.ok(he.x < p.x + 90 * S, '听牌条不该被推到右端之外很远');
 });
 
 test('3D：点击的重复牌从当前位置飞入牌河，手牌补位；中途快照不会重启动画', async () => {
