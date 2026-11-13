@@ -66,7 +66,7 @@ test('听牌判定', () => {
   assert.equal(R.tingValue(h, []).points, 4);
 });
 
-test('吃炮通行证：没豆要 14 分，有豆（杠）任意牌型都能点炮', () => {
+test('吃炮通行证：没豆要 14 分，有豆（杠）或本人报听任意牌型都能点炮', () => {
   const ping = { points: 4, kongs: 0 };
   const duizi = { points: 14, kongs: 0 };
   const withKong = { points: 4, kongs: 1 };
@@ -74,6 +74,9 @@ test('吃炮通行证：没豆要 14 分，有豆（杠）任意牌型都能点�
   assert.equal(R.canChiPao(duizi), true);
   assert.equal(R.canChiPao(withKong), true, '有豆就是通行证');
   assert.equal(R.canChiPao({ points: 4, kongs: 2 }), true);
+  assert.equal(R.canChiPao(ping, { ting: true }), true, '报听了也是通行证，平胡也能点炮');
+  assert.equal(R.canChiPao({ points: 4, kongs: 0 }, { ting: false }), false, '没报听还是看门槛');
+  assert.equal(R.canChiPao(null, { ting: true }), false, '没胡牌就谈不上通行证');
   assert.equal(R.canChiPao(null), false);
 });
 

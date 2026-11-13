@@ -577,8 +577,10 @@
         const info = R.winInfo(pl.hand.concat(tile), pl.melds, this.mode);
         // 报听的人打出的牌没有吃炮门槛，三家都能胡
         const free = !!this.players[from].tingDeclared;
-        if (info && (free || R.canChiPao(info))) acts.push('hu');
-        if (info && !free && !R.canChiPao(info) && pl.isHuman) {
+        // 本人报听了也是吃炮通行证：牌型分不够也能点炮
+        const pass = free || R.canChiPao(info, { ting: !!pl.tingDeclared });
+        if (info && pass) acts.push('hu');
+        if (info && !pass && pl.isHuman) {
           this.emit('blocked', { info, tile });
         }
         // 报听的人不能再碰 / 杠；幺筒是财神，谁也不能碰 / 杠
@@ -617,7 +619,7 @@
       return { p: rest[0].p, type: rest[0].type };
     }
 
-    /** 补杠时看看有没人抢杠胡（抢杠同样受吃炮门槛限制，低于 14 分不能抢） */
+    /** 补杠时看看有没人抢杠胡（与点炮共用通行证：有豆 / 已报听不限，否则要 14 分） */
     async resolveRobKong(kongger, tile) {
       const claims = [];
       for (let k = 1; k < 4; k++) {
@@ -625,7 +627,7 @@
         const pl = this.players[p];
         const info = R.winInfo(pl.hand.concat(tile), pl.melds, this.mode);
         if (!info) continue;
-        if (!R.canChiPao(info)) {
+        if (!R.canChiPao(info, { ting: !!pl.tingDeclared })) {
           if (pl.isHuman) this.emit('blocked', { info, tile, rob: true });
           continue;
         }

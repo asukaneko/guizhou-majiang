@@ -189,7 +189,52 @@ test('吃炮门槛：没豆要 14 分边界，有豆是通行证（平胡也能�
   assert.equal(R.canChiPao({ points:4, kongs:0 }), false, '没豆的平胡不能点炮');
   assert.equal(R.canChiPao({ points:4, kongs:1 }), true, '有豆的平胡可以点炮');
   assert.equal(R.canChiPao({ points:4, kongs:2, hardBonus:5 }), true, '豆按杠数算，硬胡加成不影响');
+  assert.equal(R.canChiPao({ points:4, kongs:0 }, { ting:true }), true, '报听即通行证（2026-11-13）');
+  assert.equal(R.canChiPao({ points:4, kongs:0 }, { ting:false }), false);
+  assert.equal(R.canChiPao(null, { ting:true }), false);
   assert.equal(R.canChiPao(null), false);
+});
+
+test('报听即通行证：低分平胡也能点炮 / 抢杠，单机与联机两条判定路径一致', async () => {
+  const wait = ping().slice(0, -1);   // 13 张，等 22 成平胡（4 分）
+  const low = R.winInfo(wait.concat(22), [], 'classic');
+  assert.equal(low.name, '平胡');
+  assert.equal(R.canChiPao(low), false, '没豆没报听：平胡过不了门槛');
+  assert.equal(R.canChiPao(low, { ting: true }), true, '报听就是通行证');
+
+  // 单机：1 号报听，0 号打出 22，低分也能点炮
+  const g = make();
+  g.players[1].hand = wait.slice();
+  g.players[1].tingDeclared = true;
+  g.players[2].hand = junk();
+  g.players[3].hand = junk();
+  const claim = await g.resolveClaims(0, 22);
+  assert.equal(claim?.type, 'hu', '报听的平胡能点炮');
+  assert.deepEqual(claim.winners, [{ p: 1, winTile: 22 }]);
+  const result = g.settleWin(claim.winners, { from: 0 });
+  assert.equal(result.winners[0].points, 24, '平胡 4 + 报听 20');
+  assert.deepEqual(result.winDeltas, [-24, 24, 0, 0], '点炮那家付');
+  g.abort();
+
+  // 联机：服务端 resolveClaims 走同一条口径
+  const online = new OnlineGame({ mode:'classic', dealer:0, speed:100,
+    seats:[{ type:'bot' }, { type:'bot' }, { type:'bot' }, { type:'bot' }] });
+  online.phase = 'playing';
+  online.players[1].hand = wait.slice();
+  online.players[1].tingDeclared = true;
+  online.players[2].hand = junk();
+  online.players[3].hand = junk();
+  const onlineClaim = await online.resolveClaims(0, 22);
+  assert.equal(onlineClaim?.type, 'hu');
+  assert.deepEqual(onlineClaim.winners, [{ p: 1, winTile: 22 }]);
+  online.abort();
+
+  // 抢杠同一条门槛：报听的平胡也能抢
+  const rk = make();
+  rk.players[1].hand = wait.slice();
+  rk.players[1].tingDeclared = true;
+  assert.deepEqual(await rk.resolveRobKong(0, 22), [{ p: 1, winTile: 22 }]);
+  rk.abort();
 });
 
 test('有豆的平胡：普通点炮能胡，没豆的平胡胡不了', () => {

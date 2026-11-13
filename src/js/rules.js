@@ -386,9 +386,11 @@
 
   /* ---------------- 吃炮通行证 ---------------- */
   // 门槛按基础牌型分判断，不把报听、硬胡等附加分计入。
-  // 例外：手里有豆（杠）就是通行证，任意牌型都能点炮 / 抢杠——平胡有豆也能胡。
-  function canChiPao(info) {
+  // 例外：手里有豆（杠）或本人已经报听，都是通行证，任意牌型都能点炮 / 抢杠——平胡也能胡。
+  // opts.ting = 胡牌者本人已报听（报听锁牌换来的资格，2026-11-13 口径）。
+  function canChiPao(info, opts) {
     if (!info) return false;
+    if (opts && opts.ting) return true;
     if ((info.kongs || 0) > 0) return true;
     return info.points >= CHI_PAO_MIN;
   }
