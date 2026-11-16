@@ -54,7 +54,7 @@ const stats = {
         stats.huPoints = Math.max(stats.huPoints, w.points);
         if (w.hard === true) stats.hard++;
         if (w.hard === false) stats.soft++;
-        if (w.extra.some((x) => x.indexOf('热炮') === 0)) stats.repao++;
+        if (w.extra.some((x) => x.indexOf('杠上炮') === 0)) stats.repao++;
         if (w.extra.some((x) => x.indexOf('天胡') === 0)) stats.tianhu++;
         if (w.extra.some((x) => x.indexOf('地胡') === 0)) stats.dihu++;
         if (w.extra.some((x) => x.indexOf('报听') === 0 || x.indexOf('天听') === 0)) stats.baoting++;

@@ -466,8 +466,8 @@ test('报听 / 天听 / 天胡 / 热炮 / 抢杠 的加分', () => {
   g5.wall = [];
   g5.players[0].hand = WIN14();
   const repao = g5.settleWin([{ p: 0, winTile: null }], { selfDraw: false, from: 2, repao: true });
-  assert.equal(repao.winners[0].points, 24); // 4 + 热炮20
-  assert.ok(repao.winners[0].extra.includes('热炮 +20'));
+  assert.equal(repao.winners[0].points, 24); // 4 + 杠上炮20
+  assert.ok(repao.winners[0].extra.includes('杠上炮 +20'));
   assert.equal(repao.winDeltas[2], -24);
 });
 
@@ -544,10 +544,10 @@ test('抢杠胡：杠不成立，补杠者向胡家付一份；没豆平胡抢�
   assert.equal(g.kongLog.length, 0, '抢杠时豆不成立');
 });
 
-test('热炮：杠后打出的牌被别人胡', () => {
+test('热炮标记：杠后打出的第一张才算，下一张普通出牌不算', () => {
   const g = new Game({ dealer: 0 });
   g.phase = 'playing';
-  g.players[2].hand = handOf([[W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [W, 5], [W, 5], [P, 9], [P, 9]]);
+  g.players[2].hand = handOf([[W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [W, 5], [W, 5], [P, 9], [P, 9], [P, 9]]);
   g.lastKongBy = 2;
   g.discard(2, c(P, 9));
   assert.equal(g.discardHot, true);
@@ -556,6 +556,76 @@ test('热炮：杠后打出的牌被别人胡', () => {
   g.players[2].hand = handOf([[W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [W, 5], [W, 5], [P, 9], [P, 9]]);
   g.discard(2, c(W, 1));
   assert.equal(g.discardHot, false);
+});
+
+test('杠上炮：杠后打出的第一张，平胡也能直接点炮（不走吃炮门槛）', async () => {
+  // 1 号平胡等 P9（4 分）：普通出牌没到 14 分门槛，杠后打出的那张可以直接胡
+  const wait = handOf([[W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [W, 5], [W, 5], [P, 9], [P, 9]]);
+  const junk = () => handOf([[W, 1], [W, 4], [W, 7], [TI, 1], [TI, 4], [TI, 7], [P, 1], [P, 4], [P, 7], [W, 2], [TI, 2], [P, 2], [W, 3]]);
+  const kongger = () => handOf([[W, 6], [W, 6], [W, 6], [TI, 8], [TI, 8], [TI, 8], [P, 6], [P, 6], [P, 6], [W, 5], [TI, 5], [P, 5], [P, 9]]);
+
+  // 基线：同样的牌，不是杠后打出的 → 门槛照旧挡着
+  const plain = new Game({ dealer: 0 });
+  plain.phase = 'playing';
+  plain.players[0].hand = kongger();
+  plain.players[1].hand = wait.slice();
+  plain.players[2].hand = junk();
+  plain.players[3].hand = junk();
+  plain.discard(0, c(P, 9));
+  assert.equal(plain.discardHot, false);
+  const blocked = await plain.resolveClaims(0, c(P, 9));
+  assert.notEqual(blocked?.type, 'hu', '不是杠后打出的，平胡还是不能点炮');
+  plain.abort();
+
+  // 杠后打出的第一张：平胡直接点炮，胡牌分 4 + 杠上炮 20
+  const g = new Game({ dealer: 0 });
+  g.phase = 'playing';
+  g.players[0].hand = kongger();
+  g.players[1].hand = wait.slice();
+  g.players[2].hand = junk();
+  g.players[3].hand = junk();
+  g.lastKongBy = 0;
+  g.discard(0, c(P, 9));
+  assert.equal(g.discardHot, true);
+  const claim = await g.resolveClaims(0, c(P, 9));
+  assert.equal(claim?.type, 'hu', '杠上炮：平胡也能直接点炮');
+  assert.deepEqual(claim.winners, [{ p: 1, winTile: c(P, 9) }]);
+  const res = g.settleWin(claim.winners, { from: 0, repao: true });
+  assert.equal(res.winners[0].points, 24); // 平胡 4 + 杠上炮 20
+  assert.ok(res.winners[0].extra.includes('杠上炮 +20'));
+  assert.deepEqual(res.winDeltas, [-24, 24, 0, 0]);
+});
+
+test('杠上炮：整局流程（暗杠→摸牌→打出）平胡直接点炮，主循环把 hot 传进结算', async () => {
+  const P6 = c(P, 6), P9 = c(P, 9), TI5 = c(TI, 5);
+  const g = new Game({ dealer: 0, speed: 100 });
+
+  // 牌墙：庄家第一摸摸到第 4 张 P6（暗杠），杠后补摸 P9
+  g.on('deal', () => {
+    g.wall = [P6, P9, c(W, 1), c(W, 2), c(W, 3), c(W, 4), c(W, 5), c(W, 6), c(W, 7), c(W, 8)];
+    // 假装本局已经打过一张：这里只验杠上炮，别让「胡庄家第一张」的地胡加分混进来
+    g.discardSeq = 1;
+    // 0 号（真人）：三张 P6 + 单吊 TI5，摸到 P6 就能暗杠，杠完打 TI5
+    g.players[0].hand = handOf([[W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [P, 6], [P, 6], [P, 6], [TI, 5]]);
+    // 1 号（电脑）：平胡等 TI5（4 分，够不着 14 分门槛，只有杠上炮才能胡）
+    g.players[1].hand = handOf([[W, 1], [W, 2], [W, 3], [TI, 1], [TI, 2], [TI, 3], [P, 1], [P, 2], [P, 3], [W, 7], [W, 8], [W, 9], [TI, 5]]);
+    g.players[2].hand = handOf([[W, 1], [W, 4], [W, 7], [TI, 1], [TI, 4], [TI, 7], [P, 1], [P, 4], [P, 7], [W, 2], [TI, 2], [P, 2], [W, 3]]);
+    g.players[3].hand = handOf([[W, 1], [W, 4], [W, 7], [TI, 1], [TI, 4], [TI, 7], [P, 1], [P, 4], [P, 7], [W, 2], [TI, 2], [P, 2], [W, 3]]);
+    for (const pl of g.players) pl.hand = R.sortHand(pl.hand);
+  });
+
+  const decisions = [{ type: 'gang', gangType: 'angang', tile: P6 }, { type: 'discard', tile: TI5 }];
+  g.on('prompt', (a) => a.resolve(decisions.shift() || { type: 'none' }));
+  const ended = new Promise((resolve) => g.on('roundEnd', resolve));
+
+  g.startRound();
+  const result = await ended;
+
+  assert.equal(result.winners[0].p, 1, '对家平胡点炮成功');
+  assert.equal(result.winners[0].points, 24, '平胡 4 + 杠上炮 20');
+  assert.ok(result.winners[0].extra.includes('杠上炮 +20'));
+  assert.equal(result.winDeltas[0], -24, '杠家付这份');
+  assert.ok(g.log.some((t) => t.includes('杠上炮')), `播报里要写明杠上炮：${g.log.join(' / ')}`);
 });
 
 test('一炮多响：一张牌两家胡，点炮者各赔一份', async () => {

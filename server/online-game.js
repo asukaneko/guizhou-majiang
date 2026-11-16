@@ -91,7 +91,9 @@ class OnlineGame extends Game {
 
   /* ---------------- 抢牌判定（多人版） ---------------- */
 
-  async resolveClaims(from, tile) {
+  async resolveClaims(from, tile, opts) {
+    // 杠后打出的第一张（杠上炮）：谁胡这张都不看吃炮门槛，平胡也能直接点炮
+    const hot = opts && opts.hot !== undefined ? !!opts.hot : !!this.discardHot;
     const claims = [];
     for (let k = 1; k < 4; k++) {
       const p = (from + k) % 4;
@@ -102,7 +104,7 @@ class OnlineGame extends Game {
       // 报听的人打出的牌没有吃炮门槛，三家都能胡
       const free = !!this.players[from].tingDeclared;
       // 本人报听了也是吃炮通行证：牌型分不够也能点炮
-      const pass = free || R.canChiPao(info, { ting: !!pl.tingDeclared });
+      const pass = free || R.canChiPao(info, { ting: !!pl.tingDeclared, hot });
       if (info && pass) acts.push('hu');
       if (info && !pass && pl.isHuman) this.emit('blocked', { info, tile });
       // 报听的人不能再碰 / 杠；幺筒是财神，谁也不能碰 / 杠

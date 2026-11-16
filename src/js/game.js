@@ -201,7 +201,7 @@
         await this.delay(240);
         if (this.phase !== 'playing') return;
 
-        const claim = await this.resolveClaims(cur, tile);
+        const claim = await this.resolveClaims(cur, tile, { hot });
         if (this.phase !== 'playing') return;
         if (!claim) {
           cur = (cur + 1) % 4;
@@ -567,7 +567,9 @@
 
     /* ---------------- 抢牌判定 ---------------- */
 
-    async resolveClaims(from, tile) {
+    async resolveClaims(from, tile, opts) {
+      // 杠后打出的第一张（杠上炮）：谁胡这张都不看吃炮门槛，平胡也能直接点炮
+      const hot = opts && opts.hot !== undefined ? !!opts.hot : !!this.discardHot;
       const claims = [];
       for (let k = 1; k < 4; k++) {
         const p = (from + k) % 4;
@@ -578,7 +580,7 @@
         // 报听的人打出的牌没有吃炮门槛，三家都能胡
         const free = !!this.players[from].tingDeclared;
         // 本人报听了也是吃炮通行证：牌型分不够也能点炮
-        const pass = free || R.canChiPao(info, { ting: !!pl.tingDeclared });
+        const pass = free || R.canChiPao(info, { ting: !!pl.tingDeclared, hot });
         if (info && pass) acts.push('hu');
         if (info && !pass && pl.isHuman) {
           this.emit('blocked', { info, tile });
@@ -821,7 +823,7 @@
           && R.chickenPoints(fullHand, pl.melds, pl.discards, chickens) === 0;
         if (sumo) { points += BONUS.sumo; extra.push(`素摸 +${BONUS.sumo}`); }
         if (opts.gangFlower) { points += 1; extra.push('杠上花 +1'); }
-        if (opts.repao) { points += BONUS.repao; extra.push(`热炮 +${BONUS.repao}`); }
+        if (opts.repao) { points += BONUS.repao; extra.push(`杠上炮 +${BONUS.repao}`); }
         if (opts.tianhu) { points += BONUS.tianhu; extra.push(`天胡 +${BONUS.tianhu}`); }
         if (opts.dihu) { points += BONUS.dihu; extra.push(`地胡 +${BONUS.dihu}`); }
         if (opts.robKong) { points += BONUS.qianggang; extra.push(`抢杠胡 +${BONUS.qianggang}`); }
@@ -940,7 +942,8 @@
       };
       const names = results.map((r) => this.players[r.p].name).join('、');
       const desc = results.map((r) => `${r.info ? r.info.name : '胡牌'} ${r.points} 分`).join('、');
-      this.note(`${names} ${opts.selfDraw ? '自摸' : '胡牌'}：${desc}`);
+      const how = opts.selfDraw ? '自摸' : opts.robKong ? '抢杠胡' : opts.repao ? '杠上炮' : '胡牌';
+      this.note(`${names} ${how}：${desc}`);
       this.nextDealer = first.p;
       this.emit('win', this.result);
       this.emitState();

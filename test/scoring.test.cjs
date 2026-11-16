@@ -191,6 +191,10 @@ test('吃炮门槛：没豆要 14 分边界，有豆是通行证（平胡也能�
   assert.equal(R.canChiPao({ points:4, kongs:2, hardBonus:5 }), true, '豆按杠数算，硬胡加成不影响');
   assert.equal(R.canChiPao({ points:4, kongs:0 }, { ting:true }), true, '报听即通行证（2026-11-13）');
   assert.equal(R.canChiPao({ points:4, kongs:0 }, { ting:false }), false);
+  assert.equal(R.canChiPao({ points:4, kongs:0 }, { hot:true }), true, '杠上炮也是通行证（2026-11-17）');
+  assert.equal(R.canChiPao({ points:4, kongs:0 }, { hot:false }), false);
+  assert.equal(R.canChiPao({ points:4, kongs:0 }, { ting:false, hot:true }), true);
+  assert.equal(R.canChiPao(null, { hot:true }), false);
   assert.equal(R.canChiPao(null, { ting:true }), false);
   assert.equal(R.canChiPao(null), false);
 });
@@ -235,6 +239,24 @@ test('报听即通行证：低分平胡也能点炮 / 抢杠，单机与联机�
   rk.players[1].tingDeclared = true;
   assert.deepEqual(await rk.resolveRobKong(0, 22), [{ p: 1, winTile: 22 }]);
   rk.abort();
+});
+
+test('杠上炮：联机 resolveClaims 与单机同一条口径，平胡也能直接点炮', async () => {
+  const wait = ping().slice(0, -1);   // 13 张，等 22 成平胡（4 分）
+  const online = new OnlineGame({ mode:'classic', dealer:0, speed:100,
+    seats:[{ type:'bot' }, { type:'bot' }, { type:'bot' }, { type:'bot' }] });
+  online.phase = 'playing';
+  online.players[1].hand = wait.slice();
+  online.players[2].hand = junk();
+  online.players[3].hand = junk();
+  assert.equal(await online.resolveClaims(0, 22, { hot: false }), null, '不是杠后打出的：平胡过不了门槛');
+  const claim = await online.resolveClaims(0, 22, { hot: true });
+  assert.equal(claim?.type, 'hu', '杠上炮：联机里平胡也能点炮');
+  assert.deepEqual(claim.winners, [{ p: 1, winTile: 22 }]);
+  const res = online.settleWin(claim.winners, { from: 0, repao: true });
+  assert.equal(res.winners[0].points, 24, '平胡 4 + 杠上炮 20');
+  assert.deepEqual(res.winDeltas, [-24, 24, 0, 0], '放炮那家付');
+  online.abort();
 });
 
 test('有豆的平胡：普通点炮能胡，没豆的平胡胡不了', () => {

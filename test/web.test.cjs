@@ -243,6 +243,8 @@ test('网页脚本集成：联机换局、结算看牌、回房实时刷新、�
     assert.match(rules, /每个杠向每位听牌者赔 4 分/);
     assert.match(rules, /杠和责任鸡作废/);
     assert.match(rules, /向每位胡家付一份/);
+    assert.match(rules, /杠上炮/);
+    assert.match(rules, /平胡也能直接点炮/);
   }
   ctx.GZUI.hideResult();
   ctx.GZUI.showOnline();
